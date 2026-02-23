@@ -1,0 +1,52 @@
+{
+  "name": "easyclaw",
+  "private": false,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "EasyClaw bootstrap app for OpenClaw",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/easyclaw.js",
+    "bin/native/darwin-x64/EasyClaw.app",
+    "bin/native/win32-x64/easyclaw.exe",
+    "README.md"
+  ],
+  "bin": {
+    "easyclaw": "bin/easyclaw.js"
+  },
+  "scripts": {
+    "dev": "vite --port 1420",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test:ui": "node ./scripts/ui_regression_check.mjs",
+    "test:rust": "cd src-tauri && cargo test",
+    "test:e2e": "./scripts/e2e_smoke.sh",
+    "doctor": "node ./bin/easyclaw.js --doctor",
+    "test:gui-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test",
+    "build:native:darwin-x64": "tauri build --bundles app && node ./scripts/package_native.mjs darwin-x64 src-tauri/target/release/bundle/macos/EasyClaw.app",
+    "build:native:win32-x64": "tauri build --bundles none && node ./scripts/package_native.mjs win32-x64 src-tauri/target/release/easyclaw.exe",
+    "test:brand-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test tests/brand.e2e.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/cli": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "bootstrap": "^5.3.8",
+    "playwright": "^1.58.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}

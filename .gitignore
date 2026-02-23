@@ -1,0 +1,20 @@
+# Local environment / secrets
+.env
+.env.*
+
+# Local tooling state
+.codex/
+.npm-cache/
+.npm-global/
+.openclaw-state/
+.pw-browsers/
+
+# macOS
+.DS_Store
+
+# Build artifacts
+app/node_modules/
+app/dist/
+app/src-tauri/target/
+app/*.tgz
+app/test-results/
