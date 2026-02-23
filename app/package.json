@@ -29,8 +29,9 @@
     "test:e2e": "./scripts/e2e_smoke.sh",
     "doctor": "node ./bin/easyclaw.js --doctor",
     "test:gui-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test",
-    "build:native:darwin-x64": "tauri build --bundles app && node ./scripts/package_native.mjs darwin-x64 src-tauri/target/release/bundle/macos/EasyClaw.app",
-    "build:native:win32-x64": "tauri build --bundles none && node ./scripts/package_native.mjs win32-x64 src-tauri/target/release/easyclaw.exe",
+    "build:native:darwin-x64": "sh ./scripts/build_native_darwin_x64.sh",
+    "build:native:darwin-arm64": "sh ./scripts/build_native_darwin_arm64.sh",
+    "build:native:win32-x64": "cmd /c scripts\\build_native_win32_x64.bat",
     "test:brand-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test tests/brand.e2e.spec.ts"
   },
   "devDependencies": {
