@@ -53,8 +53,10 @@
 - [x] 設定変更をドラフト一元管理へ統一し、Apply時のみファイルへ保存する方式へ更新した
 - [x] LMStudio/Ollama以外のProviderモデル候補を最新の公開IDベースへ更新し、OpenAI OAuth候補を実利用可能ID（`gpt-5.2`）へ修正した
 - [x] Model候補を固定配列から OpenClaw `models list --all --json` の動的取得へ切り替え、取得失敗時は固定候補へフォールバックするようにした
-- [x] 動的候補の表示数を最適化し、共通Providerは数値表現の大きい順で最大5件、OpenAI OAuthは `gpt-5.2 / gpt-5.3-codex / gpt-5.3-codex-spark` に絞り込んだ
+- [x] 動的候補の表示数を最適化し、共通Provider/OpenAI OAuthとも数値表現の大きい順で最大20件を表示しつつ、OpenAI OAuthでは `gpt-5.2 / gpt-5.3-codex / gpt-5.3-codex-spark` を先頭優先で提示するようにした
 - [x] Modelモーダルの操作を「追加/更新 + Cancel」の2ボタンに統一し、OpenAI OAuth時はモデル追加submit時にOAuth自動セットアップを起動する方式へ変更した
+- [x] Windows の OpenAI OAuth 自動セットアップで、OSX と同様に対話項目（Config handling/Workspace/Gateway など）を既定回答で通過できるよう、Enter 自動入力ポンプを組み込んだ
 - [x] OpenClaw / Clawhub のインストール更新タブを追加し、Terminal経由で `npm install -g ...@latest` を実行できるようにした
 - [x] インストールタブを改善し、OpenClaw/Clawhubそれぞれの説明・現在バージョン表示・個別のインストール/更新ボタンを表示するUIへ変更した（両方同時ボタンは削除）
 - [x] Windows配布に向けて `build:native:win32-x64` スクリプトと共通コピーscriptを追加し、`bin/native/win32-x64/easyclaw.exe` を同梱可能にした
+- [x] macOS依存だったコマンド実行箇所（`bash/sh` 依存の保守コマンド・BOOTSTRAP生成・E2Eスモーク）を両OS対応へ修正した

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "EasyClaw bootstrap app for OpenClaw",
   "os": [
-    "darwin"
+    "darwin",
+    "win32"
   ],
   "cpu": [
     "x64"
@@ -26,7 +27,7 @@
     "tauri": "tauri",
     "test:ui": "node ./scripts/ui_regression_check.mjs",
     "test:rust": "cd src-tauri && cargo test",
-    "test:e2e": "./scripts/e2e_smoke.sh",
+    "test:e2e": "node ./scripts/e2e_smoke.mjs",
     "doctor": "node ./bin/easyclaw.js --doctor",
     "test:gui-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test",
     "build:native:darwin-x64": "sh ./scripts/build_native_darwin_x64.sh",

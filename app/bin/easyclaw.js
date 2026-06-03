@@ -4,8 +4,9 @@ import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const rootDir = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pkgPath = path.join(rootDir, "package.json");
 const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 

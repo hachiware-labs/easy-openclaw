@@ -25,6 +25,7 @@ Done：モデル一覧に新規モデルが追加され、後続のAgent作成�
 - 参照: `https://docs.openclaw.ai/providers/openai`
 - 参照: `https://docs.openclaw.ai/concepts/oauth`
 - OpenAI側のChatGPT連携案内: `https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan`
+- モデル候補は OpenClaw `models list --all --json` を動的取得し、最大20件を表示する。OpenAI OAuth時は `gpt-5.2 / gpt-5.3-codex / gpt-5.3-codex-spark` を優先表示しつつ、他候補も表示対象に含める。
 
 #### エラー分岐（REQ-0001の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -117,6 +118,11 @@ Done：実行経路・結果・観測メモが同一形式で記録され比較�
 Given：利用者が Setup/Run いずれかの画面を表示する。  
 When：利用者がナビゲーション、フォーム、状態表示を確認する。  
 Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と一貫して認識できる。
+
+補足（インストールタブの独立表示）:
+- OpenClaw / Clawhub のバージョン表示は**行単位で独立**して扱う。
+- 片方のインストール/更新中に、もう片方のバージョン表示を `確認中` や空表示へ戻さない。
+- 各行は最新の確定値（未インストール/バージョン）を維持し、操作対象行のみ `更新中` 状態を表示する。
 
 #### エラー分岐（REQ-0008の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |

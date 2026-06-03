@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const appTsx = fs.readFileSync(path.join(root, 'src', 'App.tsx'), 'utf8');
 const appCss = fs.readFileSync(path.join(root, 'src', 'App.css'), 'utf8');
 
@@ -13,9 +14,12 @@ const requiredAppTokens = [
   'Diagnostics',
   'モデルを追加',
   '現在のモデルはありません。',
-  'Save Model',
+  'Add Model',
+  'Update Model',
   'Save Channel',
-  'Save Agent',
+  'Add Agent',
+  'Changes in this dialog are auto-applied to draft state.',
+  'Security',
   'Apply Config',
   'Start',
   'Stop',

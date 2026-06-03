@@ -4,7 +4,7 @@ setlocal
 cd /d "%~dp0.."
 if errorlevel 1 exit /b %errorlevel%
 
-call npm run -s tauri -- build --target x86_64-pc-windows-msvc --bundles none
+call npm run -s tauri -- build --target x86_64-pc-windows-msvc --no-bundle
 if errorlevel 1 exit /b %errorlevel%
 
 node .\scripts\package_native.mjs win32-x64 src-tauri\target\x86_64-pc-windows-msvc\release\easyclaw.exe

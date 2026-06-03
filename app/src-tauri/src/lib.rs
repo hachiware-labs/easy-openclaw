@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -353,8 +355,24 @@ struct OpenClawModelListItem {
     key: String,
 }
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[cfg(not(target_os = "windows"))]
 fn sh_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(target_os = "windows")]
+fn cmd_double_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
+fn apply_command_platform_flags(cmd: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -770,12 +788,13 @@ fn resolve_workspace_path(raw: &str) -> PathBuf {
 }
 
 fn check_clawhub_installed() -> Result<(), CommandError> {
-    let status = Command::new("sh")
-        .arg("-lc")
-        .arg("command -v clawhub >/dev/null 2>&1")
-        .status()
+    let mut cmd = Command::new("clawhub");
+    cmd.arg("--cli-version");
+    apply_command_platform_flags(&mut cmd);
+    let output = cmd
+        .output()
         .map_err(|_| err("ERR-ECLAW-0100", "clawhub の確認に失敗しました。"))?;
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
         Err(err(
@@ -3289,20 +3308,43 @@ fn sync_openai_oauth_from_files(state: State<'_, AppState>) -> Result<OpenAiOaut
     })
 }
 
+fn openai_oauth_onboard_context() -> (PathBuf, PathBuf, PathBuf, String) {
+    let (resolved_config, _) = resolve_apply_paths(None);
+    let state_dir = resolved_config
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(default_openclaw_state_dir);
+    let workspace = state_dir.join("workspace");
+    let config_path =
+        std::env::temp_dir().join(format!("easyclaw-openclaw-oauth-{}.json", gen_id("cfg")));
+    let gateway_token = gen_id("gateway-token");
+    (config_path, state_dir, workspace, gateway_token)
+}
+
 #[tauri::command]
 fn login_openai_oauth(state: State<'_, AppState>) -> Result<OpenAiOauthLoginResult, CommandError> {
     let bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
-    let mut cmd = Command::new("/usr/bin/script");
-    cmd.args([
-        "-q",
-        "/dev/null",
-        &bin,
-        "models",
-        "auth",
-        "login",
-        "--provider",
-        "openai-codex",
-    ]);
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut cmd = Command::new(&bin);
+        cmd.args(["models", "auth", "login", "--provider", "openai-codex"]);
+        cmd
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let mut cmd = Command::new("/usr/bin/script");
+        cmd.args([
+            "-q",
+            "/dev/null",
+            &bin,
+            "models",
+            "auth",
+            "login",
+            "--provider",
+            "openai-codex",
+        ]);
+        cmd
+    };
 
     let (resolved_config, _) = resolve_apply_paths(None);
     if resolved_config.exists() {
@@ -3312,6 +3354,7 @@ fn login_openai_oauth(state: State<'_, AppState>) -> Result<OpenAiOauthLoginResu
         }
     }
 
+    apply_command_platform_flags(&mut cmd);
     let output = cmd.output().map_err(|_| {
         err(
             "ERR-ECLAW-0024",
@@ -3354,170 +3397,76 @@ fn login_openai_oauth(state: State<'_, AppState>) -> Result<OpenAiOauthLoginResu
 
 #[tauri::command]
 fn launch_openai_oauth_onboard() -> Result<OpenAiOauthLoginResult, CommandError> {
-    let (resolved_config, _) = resolve_apply_paths(None);
-    let mut cmd_parts: Vec<String> = vec![];
-    if resolved_config.exists() {
-        cmd_parts.push(format!(
-            "export OPENCLAW_CONFIG_PATH={}",
-            sh_single_quote(&resolved_config.display().to_string())
-        ));
-        if let Some(parent) = resolved_config.parent() {
-            cmd_parts.push(format!(
-                "export OPENCLAW_STATE_DIR={}",
-                sh_single_quote(&parent.display().to_string())
+    let (config_path, state_dir, workspace, gateway_token) = openai_oauth_onboard_context();
+    #[cfg(target_os = "windows")]
+    let status = {
+        let inner = format!(
+            "set \"OPENCLAW_CONFIG_PATH={}\" && set \"OPENCLAW_STATE_DIR={}\" && openclaw onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk",
+            config_path.display(),
+            state_dir.display(),
+            cmd_double_quote(&workspace.display().to_string()),
+            cmd_double_quote(&gateway_token)
+        );
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "start", "", "cmd", "/C", &format!("\"{inner}\"")]);
+        apply_command_platform_flags(&mut cmd);
+        cmd.status()
+            .map_err(|_| err("ERR-ECLAW-0024", "Terminal起動に失敗しました。"))
+    }?;
+    #[cfg(not(target_os = "windows"))]
+    let status = {
+        let shell_cmd = format!(
+            "export OPENCLAW_CONFIG_PATH={}; export OPENCLAW_STATE_DIR={}; openclaw onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk; exit",
+            sh_single_quote(&config_path.display().to_string()),
+            sh_single_quote(&state_dir.display().to_string()),
+            sh_single_quote(&workspace.display().to_string()),
+            sh_single_quote(&gateway_token)
+        );
+        let escaped_shell_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
+        let mut cmd = Command::new("osascript");
+        cmd.arg("-e")
+            .arg(r#"tell application "Terminal" to activate"#)
+            .arg("-e")
+            .arg(format!(
+                r#"tell application "Terminal" to do script "{}""#,
+                escaped_shell_cmd
             ));
-        }
-    }
-    cmd_parts.push("openclaw onboard --flow manual --auth-choice openai-codex --skip-channels --skip-skills --skip-daemon --skip-health; exit".to_string());
-    let shell_cmd = cmd_parts.join("; ");
-    let escaped_shell_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
-
-    let status = Command::new("osascript")
-        .arg("-e")
-        .arg(r#"tell application "Terminal" to activate"#)
-        .arg("-e")
-        .arg(format!(
-            r#"tell application "Terminal" to do script "{}""#,
-            escaped_shell_cmd
-        ))
-        .status()
-        .map_err(|_| err("ERR-ECLAW-0024", "Terminal起動に失敗しました。"))?;
+        cmd.status()
+            .map_err(|_| err("ERR-ECLAW-0024", "Terminal起動に失敗しました。"))
+    }?;
     if !status.success() {
         return Err(err(
             "ERR-ECLAW-0024",
-            "Terminal起動に失敗しました。手動で onboard を実行してください。",
+            "OpenAI OAuthセットアップを起動できませんでした。手動で onboard を実行してください。",
         ));
     }
-
     Ok(OpenAiOauthLoginResult {
-        summary: "TerminalでOAuthセットアップを開始しました。Resetは選ばず、Auth(OpenAI Codex OAuth)のみ完了後にEasyClawへ戻ってください。".to_string(),
+        summary:
+            "OpenAI Codex OAuth setup started in Terminal. Complete the browser sign-in, then return to EasyClaw."
+                .to_string(),
     })
 }
 
 #[tauri::command]
 fn run_openai_oauth_onboard_auto() -> Result<OpenAiOauthLoginResult, CommandError> {
-    let (resolved_config, _) = resolve_apply_paths(None);
-    let script = r#"
-set timeout -1
-spawn openclaw onboard --flow manual --auth-choice openai-codex --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui
-expect {
-  -re {Continue\?} {}
-  eof { exit 1 }
+    launch_openai_oauth_onboard()
 }
 
-# Select "Yes" explicitly.
-send "\033\[A"
-after 120
-send "\r"
-
-# Some versions show this before setup choice.
-expect {
-  -re {Use existing value} {
-    send "\r"
-    exp_continue
-  }
-  -re {What do you want to set up\?} {}
-  eof { exit 1 }
-}
-send "\r"
-
-# Keep default workspace.
-expect {
-  -re {Workspace directory} {
-    send "\r"
-  }
-  -re {OpenAI Codex OAuth} {}
-  eof { exit 1 }
-}
-
-# After OAuth succeeds, continue with defaults.
-while {1} {
-  expect {
-    -re {Gateway port} {
-      send "\r"
-      exp_continue
-    }
-    -re {Gateway bind} {
-      send "\r"
-      exp_continue
-    }
-    -re {Gateway auth} {
-      send "\r"
-      exp_continue
-    }
-    -re {Gateway token} {
-      send "\r"
-      exp_continue
-    }
-    -re {Token} {
-      send "\r"
-      exp_continue
-    }
-    -re {Enable hooks} {
-      send " \r"
-      exp_continue
-    }
-    -re {Enable .*shell completion for openclaw\?} {
-      send "\r"
-      exp_continue
-    }
-    -re {Use existing value} {
-      send "\r"
-      exp_continue
-    }
-    -re {Press Enter} {
-      send "\r"
-      exp_continue
-    }
-    eof { exit 0 }
-  }
-}
-"#;
-    let mut cmd_parts: Vec<String> = vec![];
-    if resolved_config.exists() {
-        cmd_parts.push(format!(
-            "export OPENCLAW_CONFIG_PATH={}",
-            sh_single_quote(&resolved_config.display().to_string())
-        ));
-        if let Some(parent) = resolved_config.parent() {
-            cmd_parts.push(format!(
-                "export OPENCLAW_STATE_DIR={}",
-                sh_single_quote(&parent.display().to_string())
-            ));
-        }
-    }
-    cmd_parts.push(format!("expect -c {}; exit", sh_single_quote(script)));
-    let shell_cmd = cmd_parts.join("; ");
-    let escaped_shell_cmd = shell_cmd.replace('\\', "\\\\").replace('"', "\\\"");
-    let status = Command::new("osascript")
-        .arg("-e")
-        .arg(r#"tell application "Terminal" to activate"#)
-        .arg("-e")
-        .arg(format!(
-            r#"tell application "Terminal" to do script "{}""#,
-            escaped_shell_cmd
-        ))
-        .status()
-        .map_err(|_| err("ERR-ECLAW-0024", "Terminal起動に失敗しました。"))?;
-    if !status.success() {
-        return Err(err(
-            "ERR-ECLAW-0024",
-            "OpenAI OAuth自動セットアップを起動できませんでした。手動セットアップを試してください。",
-        ));
-    }
-    Ok(OpenAiOauthLoginResult {
-        summary: "TerminalでOAuth自動セットアップを開始しました。ブラウザ認証後に待機した場合は、そのTerminalでEnterまたは再試行してください。".to_string(),
-    })
+#[tauri::command]
+fn run_openai_oauth_prefer_provider() -> Result<OpenAiOauthLoginResult, CommandError> {
+    launch_openai_oauth_onboard()
 }
 
 #[tauri::command]
 fn run_maintenance_command(command: MaintenanceCommand) -> Result<MaintenanceCommandResult, CommandError> {
-    let shell_cmd = match command {
-        MaintenanceCommand::InstallOpenclaw => "npm install -g openclaw@latest",
-        MaintenanceCommand::InstallClawhub => "npm install -g clawhub@latest",
+    let package = match command {
+        MaintenanceCommand::InstallOpenclaw => "openclaw@latest",
+        MaintenanceCommand::InstallClawhub => "clawhub@latest",
     };
-    let output = Command::new("bash")
-        .args(["-lc", shell_cmd])
+    let mut cmd = Command::new("npm");
+    cmd.args(["install", "-g", package]);
+    apply_command_platform_flags(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|_| err("ERR-ECLAW-0024", "インストールコマンドの実行に失敗しました。"))?;
     if !output.status.success() {
@@ -3535,37 +3484,46 @@ fn run_maintenance_command(command: MaintenanceCommand) -> Result<MaintenanceCom
     Ok(MaintenanceCommandResult { summary })
 }
 
+fn extract_version_token(line: &str) -> Option<String> {
+    for raw in line.split(|ch: char| ch.is_whitespace() || [',', ';', '(', ')'].contains(&ch)) {
+        let token = raw.trim_matches(|ch: char| ['"', '\'', ':'].contains(&ch));
+        if token.is_empty() || token.eq_ignore_ascii_case("installed") {
+            continue;
+        }
+        if token.contains('.') && token.chars().any(|ch| ch.is_ascii_digit()) {
+            return Some(token.to_string());
+        }
+    }
+    None
+}
+
 fn detect_cli_version(bin: &str, args: &[&str]) -> MaintenanceToolStatus {
-    let direct = Command::new(bin).args(args).output();
-    let output = if let Ok(output) = direct {
-        output
-    } else {
-        let arg_str = args.join(" ");
-        let shell_cmd = format!(
-            "if command -v {bin} >/dev/null 2>&1; then {bin} {arg_str}; else exit 127; fi"
-        );
-        match Command::new("bash").args(["-lc", &shell_cmd]).output() {
-            Ok(output) => output,
-            Err(_) => {
-                return MaintenanceToolStatus {
-                    installed: false,
-                    version: None,
-                };
-            }
+    let mut cmd = Command::new(bin);
+    cmd.args(args);
+    apply_command_platform_flags(&mut cmd);
+    let output = match cmd.output() {
+        Ok(output) => output,
+        Err(_) => {
+            return MaintenanceToolStatus {
+                installed: false,
+                version: None,
+            };
         }
     };
 
     let stdout = strip_ansi_sequences(&String::from_utf8_lossy(&output.stdout));
     let stderr = strip_ansi_sequences(&String::from_utf8_lossy(&output.stderr));
-    let version_line = stdout
+    let lines = stdout
         .lines()
         .chain(stderr.lines())
         .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_string);
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let version = lines.iter().find_map(|line| extract_version_token(line));
     MaintenanceToolStatus {
-        installed: output.status.success() || version_line.is_some(),
-        version: version_line,
+        installed: output.status.success() || version.is_some(),
+        version,
     }
 }
 
@@ -4371,6 +4329,7 @@ pub fn run() {
             list_provider_model_candidates,
             sync_openai_oauth_from_files,
             login_openai_oauth,
+            run_openai_oauth_prefer_provider,
             launch_openai_oauth_onboard,
             run_openai_oauth_onboard_auto,
             get_maintenance_status,
