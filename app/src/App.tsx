@@ -748,6 +748,23 @@ function App() {
     setLogs(value);
   }
 
+  function countGatewayStartedLogs(value: LogLine[]): number {
+    return value.filter((line) => line.message.toLowerCase().includes("gateway started")).length;
+  }
+
+  async function waitForGatewayStartedLog(previousCount: number, timeoutMs = 10000): Promise<boolean> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      const value = await invoke<LogLine[]>("get_logs");
+      setLogs(value);
+      if (countGatewayStartedLogs(value) > previousCount) {
+        return true;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+    }
+    return false;
+  }
+
   function toastLevelClass(level: string): string {
     const normalized = level.toLowerCase();
     if (normalized.includes("error") || normalized.includes("stderr")) return "error";
@@ -1425,11 +1442,10 @@ function App() {
       setGatewayInitialized(false);
       await refresh();
       await refreshResolvedPaths();
-      setActiveTab("run");
       setNotice(
         t(
-          `設定を出力しました: ${result.config_path} / ${result.approvals_path}。次はRunでStartしてください。`,
-          `Configuration exported: ${result.config_path} / ${result.approvals_path}. Next, go to Run and press Start.`,
+          `設定を出力しました: ${result.config_path} / ${result.approvals_path}。次はRunタブでStartしてください。`,
+          `Configuration exported: ${result.config_path} / ${result.approvals_path}. Next, open Run and press Start.`,
         ),
       );
     } catch (e) {
@@ -1441,6 +1457,8 @@ function App() {
     setError("");
     setNotice("");
     try {
+      const logsBefore = await invoke<LogLine[]>("get_logs");
+      const previousStartedLogs = countGatewayStartedLogs(logsBefore);
       const started = await invoke<RunStatus>("start_gateway", {
         input: {
           mode: runMode,
@@ -1448,13 +1466,17 @@ function App() {
         },
       });
       const snap = await refresh();
-      await refreshLogs();
+      const startupLogConfirmed = await waitForGatewayStartedLog(previousStartedLogs);
+      if (!startupLogConfirmed) {
+        setNotice(t("gatewayを起動しました。起動完了ログを確認できたらDashboardを開いてください。", "Gateway started. Open the Dashboard after the startup-complete log appears."));
+        return;
+      }
       const dashboardUrl = dashboardUrlWithTokenFor(started.dashboard_url, snap.gateway);
       try {
         await openUrl(dashboardUrl);
-        setNotice(t("gatewayを起動しました。Dashboardを開きました。", "Gateway started. Dashboard opened."));
+        setNotice(t("起動完了ログを確認しました。Dashboardを開きました。", "Startup-complete log confirmed. Dashboard opened."));
       } catch (openError) {
-        setNotice(t("gatewayを起動しました。Dashboard URLはRun画面から開けます。", "Gateway started. You can open the Dashboard URL from Run."));
+        setNotice(t("起動完了ログを確認しました。Dashboard URLはRun画面から開けます。", "Startup-complete log confirmed. You can open the Dashboard URL from Run."));
         handleCommandError(openError);
       }
     } catch (e) {

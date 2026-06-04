@@ -71,7 +71,7 @@ Done：Agent一覧に設定済みAgentが追加され、`agents.list` に反映�
 ### [ECLAW-0004] 設定適用を実行したら、OpenClawが読み込める設定ファイルを生成する。
 Given：Agent設定が1件以上あり、保存先が決定している。  
 When：利用者が Apply を実行する。  
-Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が画面で確認でき、次にRunでStartする導線が表示される。
+Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が画面で確認でき、タブ移動はせず次にRunでStartする案内が表示される。
 
 #### エラー分岐（REQ-0004の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -83,7 +83,7 @@ Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が�
 ### [ECLAW-0005] Run開始を実行したら、gatewayを起動して稼働状態を判定する。
 Given：設定生成が完了し、RunタブでMode AまたはMode Bを選択できる。  
 When：利用者が Start を実行する。  
-Done：gatewayが起動し、ヘルスチェック結果が画面に表示され、設定内容に応じたDashboard URLがブラウザで開かれる。
+Done：gatewayが起動し、ヘルスチェック結果が画面に表示され、起動完了ログを確認した後に設定内容に応じたDashboard URLがブラウザで開かれる。
 
 #### エラー分岐（REQ-0005の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
