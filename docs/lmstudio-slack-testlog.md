@@ -47,7 +47,7 @@
 - 差分観測:
 
 ### IT-0006 グローバル配布起動（同梱バイナリ）
-- 手順: `cd app && npm pack && npm install -g ./easyclaw-0.1.0.tgz` 後、`easyclaw --version` / `easyclaw --doctor` / `easyclaw` 起動を確認
+- 手順: `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz` 後、`easyclaw --version` / `easyclaw --doctor` / `easyclaw` 起動を確認
 - 結果: OK
 - 補足: `easyclaw` 起動時に `bin/native/darwin-x64/easyclaw` が子プロセスとして実行され、`tauri dev` や追加コンパイルは発生しないことを確認
 

@@ -1,6 +1,6 @@
 [package]
 name = "easyclaw"
-version = "0.1.0"
+version = "0.0.1"
 description = "EasyClaw bootstrap app for OpenClaw"
 authors = ["easyclaw"]
 edition = "2021"

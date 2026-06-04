@@ -280,7 +280,7 @@ AgentBindingService -> AgentRepository + BindingRepository + ModelCatalogReposit
 | UI回帰テスト | OpenClaw連続性 | ナビ構造、用語、主要コンポーネントの差分確認 |
 
 #12.配布・実行形態（インストール/更新/互換性/破壊的変更）
-- 配布は npm パッケージ経由（`npm install -g easyclaw`）で行う。
+- 配布は npm パッケージ経由（`npm install -g easy-openclaw`）で行う。
 - npmパッケージにはOS別Rustビルド成果物を含め、インストール時に実行可能ファイルを配置する。
 - 更新は npm の semver に従い、破壊的変更は major 更新でのみ提供する。
 - 既存設定との互換性は「OpenClawが受理できる形式」を優先し、差分は `ConfigVerifier` で検知する。

@@ -21,7 +21,7 @@
 - [x] Diagnostics機能の単体・統合テストを実施する（記録不足、保存失敗）
 - [x] OpenClaw連続性UI（用語/情報配置/状態表示トーン）を実装する
 - [x] UI回帰テストを実施する（OpenClaw連続性チェックリストに基づく差分確認）
-- [x] npmグローバル配布導線（`npm install -g easyclaw`）を実装する
+- [x] npmグローバル配布導線（`npm install -g easy-openclaw`）を実装する
 - [x] 配布導線の実機テストを実施する（クリーン環境でinstall/version/doctor/起動）
 - [x] 実物検査を実施する（OllamaまたはLMStudio、Slack/Discord/Telegramの実トークン、OpenClaw gateway実プロセス）
 - [x] E2Eテストを実施する（Setup→Apply→Run→Diagnosticsの通し検証）

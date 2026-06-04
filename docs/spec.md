@@ -1,4 +1,4 @@
-# EasyClaw
+# easy-openclaw
 
 要件とは（レビュー者視点）＋ Given/When/Done ＋ MSG/ERR のID管理  
 ※I/F詳細・API使用は書かない
@@ -222,5 +222,5 @@ Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と�
 | ブランド比較E2E | `cd app && npm run test:brand-e2e` | OpenClaw公式サイトと EasyClaw の比較スナップショットを取得し、テーマトークン整合を検証 |
 | GUI E2E | `cd app && npm run test:gui-e2e` | Setup/Run/Diagnostics のタブ遷移と主要操作UIを自動検証 |
 | E2Eスモーク | `cd app && npm run test:e2e` | LMStudio/Slack/gateway を使った通し検証 |
-| 配布実機確認 | `cd app && npm pack && npm install -g ./easyclaw-0.1.0.tgz && easyclaw --version && easyclaw --doctor` | npmグローバル導入後に同梱バイナリで起動可能なことを確認 |
+| 配布実機確認 | `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz && easyclaw --version && easyclaw --doctor` | npmグローバル導入後に同梱バイナリで起動可能なことを確認 |
 | Rust単体/統合 | `cd app/src-tauri && cargo test` | ドメイン制約・設定生成・診断記録の回帰検証 |
