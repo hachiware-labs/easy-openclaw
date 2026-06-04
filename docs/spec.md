@@ -46,16 +46,16 @@ Done：Channel一覧に新規Channelが追加され、Agent割当に選択でき
 | ERR-ECLAW-0005 | 疎通テストで認証失敗 | 認証情報を再発行して再入力する | MSG-ECLAW-0005 |
 | ERR-ECLAW-0006 | 疎通先に到達できない | ネットワーク疎通を確認して再試行する | MSG-ECLAW-0006 |
 
-### [ECLAW-0003] Agentを作成したら、Workspace/Model/Channel指定を bindings を含むOpenClaw形式で保持する。
-Given：モデルとChannelが1件以上登録されている。  
-When：利用者がAgent名/Workspace/Model/Channelを入力して保存する。  
-Done：Agent一覧に設定済みAgentが追加され、`agents.list` と `bindings` に反映される。
+### [ECLAW-0003] Agentを作成したら、Workspace/Model指定と任意のChannel指定を OpenClaw形式で保持する。
+Given：モデルが1件以上登録されている。Channelは会話連携を使う場合のみ登録されている。  
+When：利用者がAgent名/Workspace/Modelを入力し、必要に応じてChannelを選択して保存する。  
+Done：Agent一覧に設定済みAgentが追加され、`agents.list` に反映される。Channelを選択した場合のみ `bindings` に反映される。
 
 #### エラー分岐（REQ-0003の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
 |---|---|---|---|
 | ERR-ECLAW-0007 | 参照先Modelが存在しない | Modelを再選択する | MSG-ECLAW-0007 |
-| ERR-ECLAW-0008 | 参照先Channelが存在しない | Channelを再選択する | MSG-ECLAW-0008 |
+| ERR-ECLAW-0008 | 選択した参照先Channelが存在しない | Channelを再選択する、または No Channel に戻す | MSG-ECLAW-0008 |
 | ERR-ECLAW-0009 | 既存binding対象を別Agentへ再割当した | 上書き確認のうえ続行する | MSG-ECLAW-0009 |
 
 ## メンタルモデルと保存形式の変換ルール
@@ -63,7 +63,7 @@ Done：Agent一覧に設定済みAgentが追加され、`agents.list` と `bindi
 |---|---|---|
 | モデルを追加する | model定義とprovider接続定義を分離して保持 | `agents.defaults.models[]` と `models.providers[]` |
 | チャンネルを追加する | channel種別ごとの資格情報を正規化 | `channels.<type>...` |
-| エージェントにチャンネルを紐づける | ルーティング条件へ変換（agent直結ではなくbinding） | `bindings[]` |
+| エージェントにチャンネルを紐づける（任意） | ルーティング条件へ変換（agent直結ではなくbinding） | `bindings[]` |
 | エージェントにWorkspace/Modelを設定する | agent実行単位へ正規化 | `agents.list[]` |
 
 上記変換後の出力は OpenClaw strict schema 準拠とし、未知キーを出力しない。
@@ -71,7 +71,7 @@ Done：Agent一覧に設定済みAgentが追加され、`agents.list` と `bindi
 ### [ECLAW-0004] 設定適用を実行したら、OpenClawが読み込める設定ファイルを生成する。
 Given：Agent設定が1件以上あり、保存先が決定している。  
 When：利用者が Apply を実行する。  
-Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が画面で確認できる。
+Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が画面で確認でき、次にRunでStartする導線が表示される。
 
 #### エラー分岐（REQ-0004の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -83,7 +83,7 @@ Done：`openclaw.json` 互換設定と `.env` が保存され、生成結果が�
 ### [ECLAW-0005] Run開始を実行したら、gatewayを起動して稼働状態を判定する。
 Given：設定生成が完了し、RunタブでMode AまたはMode Bを選択できる。  
 When：利用者が Start を実行する。  
-Done：gatewayが起動し、ヘルスチェック結果が画面に表示される。
+Done：gatewayが起動し、ヘルスチェック結果が画面に表示され、設定内容に応じたDashboard URLがブラウザで開かれる。
 
 #### エラー分岐（REQ-0005の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -96,6 +96,10 @@ Done：gatewayが起動し、ヘルスチェック結果が画面に表示され
 Given：gatewayが起動済みである。  
 When：利用者が Logs または Open Dashboard を操作する。  
 Done：直近ログを閲覧でき、Dashboard URLへ遷移できる。
+
+補足（終了時停止確認）:
+- easy-openclawのウィンドウを閉じるとき、OpenClaw gateway が起動中または起動中の可能性がある場合は、OpenClawも停止するか確認する。
+- 利用者が停止を選んだ場合は、easy-openclawの終了前にOpenClaw gateway停止処理を実行する。
 
 #### エラー分岐（REQ-0006の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -121,8 +125,14 @@ Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と�
 
 補足（インストールタブの独立表示）:
 - OpenClaw / Clawhub のバージョン表示は**行単位で独立**して扱う。
-- 片方のインストール/更新中に、もう片方のバージョン表示を `確認中` や空表示へ戻さない。
+- 片方の更新確認中に、もう片方のバージョン表示を `確認中` や空表示へ戻さない。
+- OpenClaw / Clawhub は `easy-openclaw` の npm 依存として導入し、保守UIは個別インストールを実行せず `npm view <package> version` による更新確認のみを行う。
 - 各行は最新の確定値（未インストール/バージョン）を維持し、操作対象行のみ `更新中` 状態を表示する。
+
+補足（設定項目ヘルプ）:
+- Setup は部品管理UIを維持し、Models / Channels / Agents / Gateway / Apply の各項目に短い説明を表示する。
+- セレクト項目は、選択中の値が何を意味するかを同じ画面内に表示する。
+- Channel は任意、Gateway詳細は通常変更不要であることを画面文言で明示する。
 
 #### エラー分岐（REQ-0008の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |
@@ -185,7 +195,7 @@ Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と�
 | Rust toolchain | 必須（開発時） | stable toolchain と cargo | REQ-0001〜REQ-0008 実装/検証 |
 | OpenClaw gateway 実行体 | 必須 | ローカルで起動できること | REQ-0005, REQ-0006 |
 | Model接続先実体 | 必須（いずれか1つ） | Ollama または LMStudio または OpenAI互換API | REQ-0001 |
-| Channel実体 | 必須（いずれか1つ） | Slack / Discord / Telegram の本番相当接続先 | REQ-0002 |
+| Channel実体 | 任意（会話連携利用時） | Slack / Discord / Telegram の本番相当接続先 | REQ-0002 |
 | ブラウザ | 必須 | Dashboard URL を開ける既定ブラウザ | REQ-0006 |
 
 ## 実物検査で利用する環境変数
@@ -209,18 +219,18 @@ Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と�
 | ID | 検査内容 | 合格条件 |
 |---|---|---|
 | IT-0001 | Model接続先への疎通 | 1つ以上の接続先で疎通成功を確認できる |
-| IT-0002 | Channel実体への疎通 | 1つ以上のChannelで認証成功を確認できる |
+| IT-0002 | Channel実体への疎通（会話連携利用時） | Channelを設定した場合、1つ以上のChannelで認証成功を確認できる |
 | IT-0003 | gateway実プロセス起動 | Start後にhealth ready を確認できる |
 | IT-0004 | Setup→Apply→Run通し | 設定生成からDashboard表示まで完走できる |
 | IT-0005 | TCC比較（Case A/B） | A/B結果と観測メモを保存し比較できる |
-| IT-0006 | グローバル配布起動 | `npm install -g` 後の `easyclaw` が追加コンパイルなしで起動できる |
+| IT-0006 | グローバル配布起動 | `npm install -g` 後の `easy-openclaw` が追加コンパイルなしで起動できる |
 
 ## テスト実行コマンド（MVP）
 | 種別 | コマンド | 目的 |
 |---|---|---|
 | UI回帰 | `cd app && npm run test:ui` | Setup/Run/Diagnostics の主要UI要素が維持されていることを確認 |
-| ブランド比較E2E | `cd app && npm run test:brand-e2e` | OpenClaw公式サイトと EasyClaw の比較スナップショットを取得し、テーマトークン整合を検証 |
+| ブランド比較E2E | `cd app && npm run test:brand-e2e` | OpenClaw公式サイトと easy-openclaw の比較スナップショットを取得し、テーマトークン整合を検証 |
 | GUI E2E | `cd app && npm run test:gui-e2e` | Setup/Run/Diagnostics のタブ遷移と主要操作UIを自動検証 |
 | E2Eスモーク | `cd app && npm run test:e2e` | LMStudio/Slack/gateway を使った通し検証 |
-| 配布実機確認 | `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz && easyclaw --version && easyclaw --doctor` | npmグローバル導入後に同梱バイナリで起動可能なことを確認 |
+| 配布実機確認 | `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz && easy-openclaw --version && easy-openclaw --doctor` | npmグローバル導入後に同梱バイナリで起動可能なことを確認 |
 | Rust単体/統合 | `cd app/src-tauri && cargo test` | ドメイン制約・設定生成・診断記録の回帰検証 |

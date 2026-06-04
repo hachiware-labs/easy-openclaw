@@ -26,6 +26,7 @@
 - [x] 実物検査を実施する（OllamaまたはLMStudio、Slack/Discord/Telegramの実トークン、OpenClaw gateway実プロセス）
 - [x] E2Eテストを実施する（Setup→Apply→Run→Diagnosticsの通し検証）
 - [x] 文書との整合性を確認し、必要な差分を concept/spec/architecture に反映する
+- [ ] OpenClaw / Clawhub を easy-openclaw の npm 依存として導入し、保守UIを個別インストールから更新確認へ変更する
 
 # future
 - 同一チャネルの複数エージェント共有ルーティング（bindings/@mention/prefix）
@@ -44,11 +45,11 @@
 - [x] OpenClaw gateway を起動し `health --json` 成功を確認した（state/config/token をローカル指定）
 - [x] `npm run test:ui` と `npm run test:e2e` で回帰/E2Eスモークを通過させた
 - [x] `npm run test:gui-e2e` でGUIタブ遷移と主要操作UIのE2Eを通過させた
-- [x] `easyclaw` ランチャーを同梱ネイティブバイナリ実行に切り替え、`npm install -g` 後に追加コンパイルなしで起動することを確認した
+- [x] `easy-openclaw` ランチャーを同梱ネイティブバイナリ実行に切り替え、`npm install -g` 後に追加コンパイルなしで起動することを確認した
 - [x] メンタルモデル優先（モデル追加/チャンネル追加/エージェント紐づけ）から OpenClaw strict schema（`agents.defaults.models`/`models.providers`/`agents.list`/`bindings`）へ変換する仕様・設計へ改訂した
 - [x] 実装を `model_id + bindings` 中心へ移行し、Setup UI を Models/Channels/Agents のリスト管理（削除含む）へ更新した
 - [x] 回帰テストを実行した（`cargo test` / `npm run test:ui` / `npm run test:gui-e2e` / `npm run test:e2e`）
-- [x] OpenAI Provider に OAuth（openai-codex）認証モードを追加し、EasyClaw UI から `openclaw models auth login --provider openai-codex` を実行できるようにした
+- [x] OpenAI Provider に OAuth（openai-codex）認証モードを追加し、easy-openclaw UI から `openclaw models auth login --provider openai-codex` を実行できるようにした
 - [x] Modelモーダルの変更をApply時保存へ統一し、OAuthオンボーディング情報の取り込み保持とTerminal残留抑制を実装した
 - [x] 設定変更をドラフト一元管理へ統一し、Apply時のみファイルへ保存する方式へ更新した
 - [x] LMStudio/Ollama以外のProviderモデル候補を最新の公開IDベースへ更新し、OpenAI OAuth候補を実利用可能ID（`gpt-5.2`）へ修正した
@@ -56,7 +57,11 @@
 - [x] 動的候補の表示数を最適化し、共通Provider/OpenAI OAuthとも数値表現の大きい順で最大20件を表示しつつ、OpenAI OAuthでは `gpt-5.2 / gpt-5.3-codex / gpt-5.3-codex-spark` を先頭優先で提示するようにした
 - [x] Modelモーダルの操作を「追加/更新 + Cancel」の2ボタンに統一し、OpenAI OAuth時はモデル追加submit時にOAuth自動セットアップを起動する方式へ変更した
 - [x] Windows の OpenAI OAuth 自動セットアップで、OSX と同様に対話項目（Config handling/Workspace/Gateway など）を既定回答で通過できるよう、Enter 自動入力ポンプを組み込んだ
-- [x] OpenClaw / Clawhub のインストール更新タブを追加し、Terminal経由で `npm install -g ...@latest` を実行できるようにした
-- [x] インストールタブを改善し、OpenClaw/Clawhubそれぞれの説明・現在バージョン表示・個別のインストール/更新ボタンを表示するUIへ変更した（両方同時ボタンは削除）
-- [x] Windows配布に向けて `build:native:win32-x64` スクリプトと共通コピーscriptを追加し、`bin/native/win32-x64/easyclaw.exe` を同梱可能にした
+- [x] OpenClaw / Clawhub のインストール更新タブを追加し、Terminal経由で `npm install -g ...@latest` を実行できるようにした（後続で更新確認方式へ変更）
+- [x] インストールタブを改善し、OpenClaw/Clawhubそれぞれの説明・現在バージョン表示・個別のインストール/更新ボタンを表示するUIへ変更した（後続で更新確認方式へ変更）
+- [x] Windows配布に向けて `build:native:win32-x64` スクリプトと共通コピーscriptを追加し、`bin/native/win32-x64/easy-openclaw.exe` を同梱可能にした
 - [x] macOS依存だったコマンド実行箇所（`bash/sh` 依存の保守コマンド・BOOTSTRAP生成・E2Eスモーク）を両OS対応へ修正した
+- [x] 設定画面の部品管理UIを維持しつつ、各項目と選択値の意味を説明するヘルプ文を追加した
+- [x] アプリ全体の縦スクロールバーを暗色UIに合わせて調整した
+- [x] easy-openclaw終了時にOpenClaw gateway停止確認を出し、停止選択時は終了前に停止するようにした
+- [x] Apply完了後にRun/Startへ誘導し、Start成功時にDashboard URLを自動でブラウザ表示するようにした

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    easyclaw_lib::run()
+    easy_openclaw_lib::run()
 }

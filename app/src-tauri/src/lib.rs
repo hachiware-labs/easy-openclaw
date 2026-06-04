@@ -3,7 +3,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -340,8 +340,8 @@ struct MaintenanceStatusResult {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum MaintenanceCommand {
-    InstallOpenclaw,
-    InstallClawhub,
+    CheckOpenclawUpdate,
+    CheckClawhubUpdate,
 }
 
 #[derive(Debug, Deserialize)]
@@ -688,15 +688,27 @@ fn dashboard_url_from_gateway(gateway: &GatewaySettings) -> String {
 }
 
 fn data_dir() -> PathBuf {
+    if let Ok(v) = std::env::var("EASY_OPENCLAW_DATA_DIR") {
+        return PathBuf::from(v);
+    }
     if let Ok(v) = std::env::var("EASYCLAW_DATA_DIR") {
         return PathBuf::from(v);
     }
+    if let Ok(v) = std::env::var("LOCALAPPDATA") {
+        return PathBuf::from(v).join("easy-openclaw");
+    }
+    if let Ok(v) = std::env::var("APPDATA") {
+        return PathBuf::from(v).join("easy-openclaw");
+    }
+    if let Ok(v) = std::env::var("USERPROFILE") {
+        return PathBuf::from(v).join(".easy-openclaw-data");
+    }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join(".easyclaw-data");
+        return PathBuf::from(home).join(".easy-openclaw-data");
     }
     std::env::current_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
-        .join(".easyclaw-data")
+        .join(".easy-openclaw-data")
 }
 
 fn state_file(root: &Path) -> PathBuf {
@@ -705,6 +717,10 @@ fn state_file(root: &Path) -> PathBuf {
 
 fn secret_file(root: &Path) -> PathBuf {
     root.join("secrets.json")
+}
+
+fn default_workspace_dir() -> PathBuf {
+    data_dir().join("workspace")
 }
 
 fn parse_env_line(line: &str) -> Option<(String, String)> {
@@ -765,6 +781,9 @@ fn workspace_path_from_agent(agent: &Agent) -> PathBuf {
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .unwrap_or(".");
+    if raw == "." {
+        return default_workspace_dir();
+    }
     let path = PathBuf::from(raw);
     if path.is_absolute() {
         path
@@ -777,6 +796,9 @@ fn workspace_path_from_agent(agent: &Agent) -> PathBuf {
 
 fn resolve_workspace_path(raw: &str) -> PathBuf {
     let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return default_workspace_dir();
+    }
     let path = PathBuf::from(if trimmed.is_empty() { "." } else { trimmed });
     if path.is_absolute() {
         path
@@ -788,7 +810,8 @@ fn resolve_workspace_path(raw: &str) -> PathBuf {
 }
 
 fn check_clawhub_installed() -> Result<(), CommandError> {
-    let mut cmd = Command::new("clawhub");
+    let bin = clawhub_bin();
+    let mut cmd = Command::new(bin);
     cmd.arg("--cli-version");
     apply_command_platform_flags(&mut cmd);
     let output = cmd
@@ -799,7 +822,7 @@ fn check_clawhub_installed() -> Result<(), CommandError> {
     } else {
         Err(err(
             "ERR-ECLAW-0100",
-            "clawhub が見つかりません。`npm install -g clawhub` を実行してください。",
+            "clawhub が見つかりません。easy-openclaw を再インストールしてください。",
         ))
     }
 }
@@ -882,19 +905,13 @@ fn parse_clawhub_search_stdout(stdout: &str) -> Vec<ClawhubSkillItem> {
 fn ensure_workspace_bootstrap_files(persisted: &PersistedState) -> Result<Vec<String>, AppError> {
     let mut created = vec![];
     let mut visited = HashSet::new();
-    let script = r#"workspace="$1"
-mkdir -p "$workspace"
-if [ ! -f "$workspace/BOOTSTRAP.md" ]; then
-  cat > "$workspace/BOOTSTRAP.md" <<'EOF'
-# BOOTSTRAP.md
+    let bootstrap_text = r#"# BOOTSTRAP.md
 
-This workspace was initialized by EasyClaw.
+This workspace was initialized by easy-openclaw.
 
 1. Confirm your agent setup and tool access.
 2. Keep secrets in environment variables, not markdown files.
 3. Remove this file after onboarding if you no longer need it.
-EOF
-fi
 "#;
 
     for agent in &persisted.agents {
@@ -910,18 +927,10 @@ fi
             continue;
         }
 
-        let status = Command::new("sh")
-            .arg("-lc")
-            .arg(script)
-            .arg("sh")
-            .arg(&key)
-            .status()
-            .map_err(|e| AppError::Message(format!("failed to run bootstrap command: {e}")))?;
-        if !status.success() {
-            return Err(AppError::Message(format!(
-                "bootstrap command failed for workspace: {key}"
-            )));
-        }
+        fs::create_dir_all(&workspace)
+            .map_err(|e| AppError::Message(format!("failed to create workspace dir {key}: {e}")))?;
+        fs::write(&bootstrap_path, bootstrap_text)
+            .map_err(|e| AppError::Message(format!("failed to write BOOTSTRAP.md for workspace {key}: {e}")))?;
         if bootstrap_path.exists() {
             created.push(bootstrap_path.display().to_string());
         }
@@ -954,7 +963,10 @@ fn persist(state: &AppState) -> Result<(), AppError> {
 fn load_or_default(root: &Path) -> (PersistedState, SecretStore) {
     let _ = fs::create_dir_all(root);
 
-    if let Ok(legacy_root) = std::env::current_dir().map(|v| v.join(".easyclaw-data")) {
+    let legacy_roots = std::env::current_dir()
+        .map(|v| vec![v.join(".easyclaw-data"), v.join(".easy-openclaw-data")])
+        .unwrap_or_default();
+    for legacy_root in legacy_roots {
         if legacy_root != root {
             let legacy_state = state_file(&legacy_root);
             let legacy_secret = secret_file(&legacy_root);
@@ -1524,37 +1536,6 @@ fn is_port_listening(port: u16) -> bool {
     !listener_pids_on_port(port).is_empty()
 }
 
-fn stop_listener_on_port(port: u16) -> bool {
-    let pids = listener_pids_on_port(port);
-    if pids.is_empty() {
-        return false;
-    }
-
-    let mut signaled = false;
-    for pid in &pids {
-        if let Ok(status) = Command::new("kill").args(["-TERM", pid]).status() {
-            if status.success() {
-                signaled = true;
-            }
-        }
-    }
-    std::thread::sleep(Duration::from_millis(600));
-
-    if !is_port_listening(port) {
-        return signaled;
-    }
-
-    for pid in &pids {
-        if let Ok(status) = Command::new("kill").args(["-KILL", pid]).status() {
-            if status.success() {
-                signaled = true;
-            }
-        }
-    }
-    std::thread::sleep(Duration::from_millis(300));
-    signaled && !is_port_listening(port)
-}
-
 fn provider_api_env_var(provider_type: &ProviderType) -> Option<&'static str> {
     match provider_type {
         ProviderType::OpenAi => Some("OPENAI_API_KEY"),
@@ -1707,6 +1688,55 @@ fn sort_and_trim_numeric_top(models: &mut Vec<String>, limit: usize) {
     }
 }
 
+fn run_model_list_command_with_timeout(mut cmd: Command) -> Result<std::process::Output, CommandError> {
+    let timeout = Duration::from_secs(8);
+    let started = SystemTime::now();
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| {
+            err(
+                "ERR-ECLAW-0024",
+                "モデル一覧の取得に失敗しました。openclaw コマンドを確認してください。",
+            )
+        })?;
+
+    loop {
+        if let Some(status) = child.try_wait().map_err(|_| {
+            err(
+                "ERR-ECLAW-0024",
+                "モデル一覧の取得状態を確認できませんでした。",
+            )
+        })? {
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            if let Some(mut out) = child.stdout.take() {
+                let _ = out.read_to_end(&mut stdout);
+            }
+            if let Some(mut err_out) = child.stderr.take() {
+                let _ = err_out.read_to_end(&mut stderr);
+            }
+            return Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            });
+        }
+
+        if started.elapsed().unwrap_or_default() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(err(
+                "ERR-ECLAW-0024",
+                "モデル一覧の取得がタイムアウトしました。固定候補を使ってください。",
+            ));
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 #[tauri::command]
 fn list_provider_model_candidates(
     provider_type: ProviderType,
@@ -1716,7 +1746,7 @@ fn list_provider_model_candidates(
         return Ok(vec![]);
     };
 
-    let bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
+    let bin = openclaw_bin();
     let mut cmd = Command::new(bin);
     cmd.args(["models", "list", "--all", "--json"]);
 
@@ -1728,12 +1758,7 @@ fn list_provider_model_candidates(
         }
     }
 
-    let output = cmd.output().map_err(|_| {
-        err(
-            "ERR-ECLAW-0024",
-            "モデル一覧の取得に失敗しました。openclaw コマンドを確認してください。",
-        )
-    })?;
+    let output = run_model_list_command_with_timeout(cmd)?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2323,7 +2348,7 @@ fn merge_openclaw_config(
     let generated_for_merge = generated.clone();
     merge_json(&mut existing, generated_for_merge);
 
-    // Keep unmanaged top-level fields, but make EasyClaw-managed sections authoritative.
+    // Keep unmanaged top-level fields, but make easy-openclaw-managed sections authoritative.
     for key in ["agents", "channels", "bindings", "gateway"] {
         if let Some(v) = existing.get_mut(key) {
             if let Some(gv) = generated.get(key) {
@@ -2489,7 +2514,7 @@ fn build_output_files(
         agents.push(serde_json::json!({
             "id": agent.id,
             "name": agent.display_name,
-            "workspace": agent.workspace_path.clone().unwrap_or_else(|| ".".to_string()),
+            "workspace": workspace_path_from_agent(agent).display().to_string(),
             "model": model_ref,
         }));
     }
@@ -2636,7 +2661,6 @@ fn build_output_files(
                 "enabled": true,
                 "groupPolicy": "allowlist",
                 "dmPolicy": "pairing",
-                "streamMode": "partial",
                 "accounts": telegram_accounts
             }
         },
@@ -2680,7 +2704,7 @@ fn run_status_from(run: &RunState, gateway: &GatewaySettings) -> RunStatus {
 
     let running = managed_running || port_in_use;
     let (can_start, start_disabled_reason) = if managed_running {
-        (false, Some("EasyClaw が起動した gateway が稼働中です。".into()))
+        (false, Some("easy-openclaw が起動した gateway が稼働中です。".into()))
     } else if port_in_use {
         (
             false,
@@ -3001,7 +3025,7 @@ fn search_clawhub_skills(
         return Ok(vec![]);
     }
     let limit = input.limit.unwrap_or(20).clamp(1, 50);
-    let output = Command::new("clawhub")
+    let output = Command::new(clawhub_bin())
         .args(["search", query, "--limit", &limit.to_string()])
         .output()
         .map_err(|_| err("ERR-ECLAW-0102", "clawhub search の実行に失敗しました。"))?;
@@ -3022,7 +3046,7 @@ fn install_workspace_skill(
         return Err(err("ERR-ECLAW-0103", "skill slug は必須です。"));
     }
     let workspace = resolve_workspace_path(&input.workspace_path);
-    let status = Command::new("clawhub")
+    let status = Command::new(clawhub_bin())
         .args([
             "install",
             slug,
@@ -3316,14 +3340,14 @@ fn openai_oauth_onboard_context() -> (PathBuf, PathBuf, PathBuf, String) {
         .unwrap_or_else(default_openclaw_state_dir);
     let workspace = state_dir.join("workspace");
     let config_path =
-        std::env::temp_dir().join(format!("easyclaw-openclaw-oauth-{}.json", gen_id("cfg")));
+        std::env::temp_dir().join(format!("easy-openclaw-oauth-{}.json", gen_id("cfg")));
     let gateway_token = gen_id("gateway-token");
     (config_path, state_dir, workspace, gateway_token)
 }
 
 #[tauri::command]
 fn login_openai_oauth(state: State<'_, AppState>) -> Result<OpenAiOauthLoginResult, CommandError> {
-    let bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
+    let bin = openclaw_bin();
     #[cfg(target_os = "windows")]
     let mut cmd = {
         let mut cmd = Command::new(&bin);
@@ -3398,12 +3422,14 @@ fn login_openai_oauth(state: State<'_, AppState>) -> Result<OpenAiOauthLoginResu
 #[tauri::command]
 fn launch_openai_oauth_onboard() -> Result<OpenAiOauthLoginResult, CommandError> {
     let (config_path, state_dir, workspace, gateway_token) = openai_oauth_onboard_context();
+    let bin = openclaw_bin();
     #[cfg(target_os = "windows")]
     let status = {
         let inner = format!(
-            "set \"OPENCLAW_CONFIG_PATH={}\" && set \"OPENCLAW_STATE_DIR={}\" && openclaw onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk",
+            "set \"OPENCLAW_CONFIG_PATH={}\" && set \"OPENCLAW_STATE_DIR={}\" && {} onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk",
             config_path.display(),
             state_dir.display(),
+            cmd_double_quote(&bin),
             cmd_double_quote(&workspace.display().to_string()),
             cmd_double_quote(&gateway_token)
         );
@@ -3416,9 +3442,10 @@ fn launch_openai_oauth_onboard() -> Result<OpenAiOauthLoginResult, CommandError>
     #[cfg(not(target_os = "windows"))]
     let status = {
         let shell_cmd = format!(
-            "export OPENCLAW_CONFIG_PATH={}; export OPENCLAW_STATE_DIR={}; openclaw onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk; exit",
+            "export OPENCLAW_CONFIG_PATH={}; export OPENCLAW_STATE_DIR={}; {} onboard --flow manual --auth-choice openai-codex --mode local --workspace {} --gateway-port 18789 --gateway-bind loopback --gateway-auth token --gateway-token {} --skip-channels --skip-skills --skip-daemon --skip-health --skip-ui --accept-risk; exit",
             sh_single_quote(&config_path.display().to_string()),
             sh_single_quote(&state_dir.display().to_string()),
+            sh_single_quote(&bin),
             sh_single_quote(&workspace.display().to_string()),
             sh_single_quote(&gateway_token)
         );
@@ -3442,7 +3469,7 @@ fn launch_openai_oauth_onboard() -> Result<OpenAiOauthLoginResult, CommandError>
     }
     Ok(OpenAiOauthLoginResult {
         summary:
-            "OpenAI Codex OAuth setup started in Terminal. Complete the browser sign-in, then return to EasyClaw."
+            "OpenAI Codex OAuth setup started in Terminal. Complete the browser sign-in, then return to easy-openclaw."
                 .to_string(),
     })
 }
@@ -3457,29 +3484,109 @@ fn run_openai_oauth_prefer_provider() -> Result<OpenAiOauthLoginResult, CommandE
     launch_openai_oauth_onboard()
 }
 
+fn npm_command_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "npm.cmd"
+    } else {
+        "npm"
+    }
+}
+
+fn bundled_bin_file_name(name: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{name}.cmd")
+    } else {
+        name.to_string()
+    }
+}
+
+fn bundled_cli_bin(name: &str) -> Option<String> {
+    let root = std::env::var("EASY_OPENCLAW_ROOT").ok()?;
+    let path = PathBuf::from(root)
+        .join("node_modules")
+        .join(".bin")
+        .join(bundled_bin_file_name(name));
+    if path.exists() {
+        Some(path.display().to_string())
+    } else {
+        None
+    }
+}
+
+fn resolve_cli_bin(name: &str) -> String {
+    bundled_cli_bin(name).unwrap_or_else(|| name.to_string())
+}
+
+fn openclaw_bin() -> String {
+    std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| resolve_cli_bin("openclaw"))
+}
+
+fn clawhub_bin() -> String {
+    resolve_cli_bin("clawhub")
+}
+
+fn command_failure_detail(stdout: &str, stderr: &str, fallback: &str) -> String {
+    extract_cli_error_detail(stdout, stderr).unwrap_or_else(|| {
+        let detail = strip_ansi_sequences(&format!("{stdout}\n{stderr}"));
+        let lines = detail
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>();
+        if lines.is_empty() {
+            fallback.to_string()
+        } else {
+            lines.into_iter().rev().collect::<Vec<_>>().join("\n")
+        }
+    })
+}
+
 #[tauri::command]
 fn run_maintenance_command(command: MaintenanceCommand) -> Result<MaintenanceCommandResult, CommandError> {
-    let package = match command {
-        MaintenanceCommand::InstallOpenclaw => "openclaw@latest",
-        MaintenanceCommand::InstallClawhub => "clawhub@latest",
+    let (package, label, args): (&str, &str, &[&str]) = match command {
+        MaintenanceCommand::CheckOpenclawUpdate => ("openclaw", "OpenClaw", &["--version"]),
+        MaintenanceCommand::CheckClawhubUpdate => ("clawhub", "Clawhub", &["--cli-version"]),
     };
-    let mut cmd = Command::new("npm");
-    cmd.args(["install", "-g", package]);
+    let current_bin = match package {
+        "openclaw" => openclaw_bin(),
+        "clawhub" => clawhub_bin(),
+        _ => package.to_string(),
+    };
+    let installed = detect_cli_version(&current_bin, args);
+    let mut cmd = Command::new(npm_command_name());
+    cmd.args(["view", package, "version"]);
     apply_command_platform_flags(&mut cmd);
     let output = cmd
         .output()
-        .map_err(|_| err("ERR-ECLAW-0024", "インストールコマンドの実行に失敗しました。"))?;
+        .map_err(|_| err("ERR-ECLAW-0024", "更新確認コマンドの実行に失敗しました。"))?;
     if !output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let detail = extract_cli_error_detail(&stdout, &stderr)
-            .unwrap_or_else(|| "npm install -g の実行に失敗しました。".to_string());
+        let detail = command_failure_detail(
+            &stdout,
+            &stderr,
+            "npm view の実行に失敗しました。",
+        );
         return Err(err("ERR-ECLAW-0024", &detail));
     }
-
-    let summary = match command {
-        MaintenanceCommand::InstallOpenclaw => "OpenClaw のインストール/更新が完了しました。".to_string(),
-        MaintenanceCommand::InstallClawhub => "Clawhub のインストール/更新が完了しました。".to_string(),
+    let latest = strip_ansi_sequences(&String::from_utf8_lossy(&output.stdout))
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+    let summary = match installed.version {
+        Some(current) if current == latest => {
+            format!("{label} は最新です（{current}）。")
+        }
+        Some(current) => {
+            format!("{label} の更新があります。現在: {current} / 最新: {latest}。更新するには easy-openclaw を再インストールしてください。")
+        }
+        None => {
+            format!("{label} は未検出です。easy-openclaw の依存として同梱されるため、easy-openclaw を再インストールしてください。最新: {latest}。")
+        }
     };
     Ok(MaintenanceCommandResult { summary })
 }
@@ -3529,10 +3636,11 @@ fn detect_cli_version(bin: &str, args: &[&str]) -> MaintenanceToolStatus {
 
 #[tauri::command]
 fn get_maintenance_status() -> Result<MaintenanceStatusResult, CommandError> {
-    let openclaw_bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
+    let openclaw_path = openclaw_bin();
+    let clawhub_path = clawhub_bin();
     Ok(MaintenanceStatusResult {
-        openclaw: detect_cli_version(&openclaw_bin, &["--version"]),
-        clawhub: detect_cli_version("clawhub", &["--cli-version"]),
+        openclaw: detect_cli_version(&openclaw_path, &["--version"]),
+        clawhub: detect_cli_version(&clawhub_path, &["--cli-version"]),
     })
 }
 
@@ -4059,7 +4167,7 @@ async fn start_gateway(
         run.health = "starting".into();
 
         if input.mode == RunMode::A {
-            let bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
+            let bin = openclaw_bin();
             let args_line =
                 std::env::var("OPENCLAW_GATEWAY_ARGS").unwrap_or_else(|_| "gateway".into());
             let mut cmd = Command::new(bin);
@@ -4180,28 +4288,8 @@ async fn start_gateway(
 }
 
 #[tauri::command]
-fn stop_gateway(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
-    let mut stopped_any = false;
-    let gateway_cfg = state
-        .persisted
-        .lock()
-        .map_err(|_| err("ERR-ECLAW-0000", "state lock poisoned"))?
-        .gateway
-        .clone();
-
-    {
-        let mut run = state
-            .run_state
-            .lock()
-            .map_err(|_| err("ERR-ECLAW-0000", "run lock poisoned"))?;
-        if let Some(child) = run.child.as_mut() {
-            let _ = child.kill();
-            stopped_any = true;
-        }
-        run.child = None;
-    }
-
-    let bin = std::env::var("OPENCLAW_GATEWAY_BIN").unwrap_or_else(|_| "openclaw".into());
+fn gateway_stop_command() -> Command {
+    let bin = openclaw_bin();
     let args_line =
         std::env::var("OPENCLAW_GATEWAY_STOP_ARGS").unwrap_or_else(|_| "gateway stop".into());
     let mut cmd = Command::new(bin);
@@ -4215,40 +4303,87 @@ fn stop_gateway(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
             cmd.env("OPENCLAW_STATE_DIR", parent);
         }
     }
-    if let Ok(status) = cmd.status() {
-        if status.success() {
-            stopped_any = true;
+    apply_command_platform_flags(&mut cmd);
+    cmd
+}
+
+fn run_gateway_stop_command(wait: bool) {
+    if wait {
+        let mut cmd = gateway_stop_command();
+        if let Ok(mut child) = cmd.spawn() {
+            let started = SystemTime::now();
+            loop {
+                if child.try_wait().ok().flatten().is_some() {
+                    break;
+                }
+                if SystemTime::now()
+                    .duration_since(started)
+                    .unwrap_or_else(|_| Duration::from_secs(0))
+                    >= Duration::from_secs(5)
+                {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        return;
+    }
+
+    std::thread::spawn(|| {
+        let mut cmd = gateway_stop_command();
+        let _ = cmd.status();
+    });
+}
+
+fn stop_gateway_inner(state: &AppState, wait: bool) -> Result<RunStatus, CommandError> {
+    let gateway_cfg = state
+        .persisted
+        .lock()
+        .map_err(|_| err("ERR-ECLAW-0000", "state lock poisoned"))?
+        .gateway
+        .clone();
+
+    let child = {
+        let mut run = state
+            .run_state
+            .lock()
+            .map_err(|_| err("ERR-ECLAW-0000", "run lock poisoned"))?;
+        run.health = "stopped".into();
+        run.child.take()
+    };
+
+    if let Some(mut child) = child {
+        if wait {
+            let _ = child.kill();
+            let _ = child.wait();
+        } else {
+            std::thread::spawn(move || {
+                let _ = child.kill();
+                let _ = child.wait();
+            });
         }
     }
 
-    if gateway_cfg.mode == GatewayMode::Local {
-        let port = gateway_cfg.port.unwrap_or(18789);
-        if is_port_listening(port) && stop_listener_on_port(port) {
-            stopped_any = true;
-        }
-        if is_port_listening(port) {
-            return Err(err(
-                "ERR-ECLAW-0014",
-                "gateway停止に失敗しました。ポートが使用中のままです。",
-            ));
-        }
-    }
+    run_gateway_stop_command(wait);
 
-    let mut run = state
+    let run = state
         .run_state
         .lock()
         .map_err(|_| err("ERR-ECLAW-0000", "run lock poisoned"))?;
-    run.health = "stopped".into();
-
-    if !stopped_any {
-        return Err(err(
-            "ERR-ECLAW-0014",
-            "停止対象のgatewayが見つかりませんでした。",
-        ));
-    }
-
     push_log(&state, "info", "gateway stopped");
     Ok(run_status_from(&run, &gateway_cfg))
+}
+
+#[tauri::command]
+fn stop_gateway(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
+    stop_gateway_inner(&state, false)
+}
+
+#[tauri::command]
+fn stop_gateway_for_exit(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
+    stop_gateway_inner(&state, true)
 }
 
 #[tauri::command]
@@ -4344,6 +4479,7 @@ pub fn run() {
             apply_config,
             start_gateway,
             stop_gateway,
+            stop_gateway_for_exit,
             get_logs,
             record_experiment,
             list_experiments,
@@ -4372,7 +4508,7 @@ mod tests {
 
     #[test]
     fn atomic_write_creates_file() {
-        let tmp_dir = std::env::temp_dir().join(gen_id("easyclaw-test"));
+        let tmp_dir = std::env::temp_dir().join(gen_id("easy-openclaw-test"));
         let _ = fs::create_dir_all(&tmp_dir);
         let path = tmp_dir.join("sample.txt");
         write_atomic(&path, "hello").expect("write should succeed");
@@ -4397,7 +4533,7 @@ mod tests {
 
     #[test]
     fn load_env_file_reads_key_values() {
-        let tmp_dir = std::env::temp_dir().join(gen_id("easyclaw-env"));
+        let tmp_dir = std::env::temp_dir().join(gen_id("easy-openclaw-env"));
         let _ = fs::create_dir_all(&tmp_dir);
         let env_path = tmp_dir.join(".env");
         fs::write(
@@ -4554,11 +4690,78 @@ mod tests {
         assert!(config.contains("\"mode\": \"local\""));
         assert!(config.contains("\"mode\": \"socket\""));
         assert!(config.contains("\"replyToMode\": \"off\""));
+        assert!(!config.contains("streamMode"));
         assert!(config.contains("\"slack-001\""));
         assert!(config.contains("\"C0123456789\""));
         assert!(config.contains("xoxb-test"));
         assert!(config.contains("xapp-test"));
         assert!(env.contains("SECRET_PROVIDER_1=token123"));
+    }
+
+    #[test]
+    fn build_output_files_allows_agent_without_channel() {
+        let state = PersistedState {
+            models: vec![ModelCatalogItem {
+                id: "model-1".into(),
+                provider_type: ProviderType::LmStudio,
+                base_url: Some("http://localhost:1234/v1".into()),
+                model_name: "m".into(),
+                openai_auth_mode: None,
+                api_key_ref: None,
+                connection_options: HashMap::new(),
+            }],
+            channels: vec![],
+            agents: vec![Agent {
+                id: "agent-1".into(),
+                display_name: "main".into(),
+                model_id: "model-1".into(),
+                model_override: None,
+                channel_id: None,
+                workspace_path: None,
+                security: AgentSecuritySettings::default(),
+            }],
+            bindings: vec![],
+            experiments: vec![],
+            gateway: GatewaySettings::default(),
+            execution_policy: ExecutionPolicySettings::default(),
+            execution_allowlist: vec![],
+        };
+        let secrets = SecretStore::default();
+
+        let (config, env) = build_output_files(&state, &secrets).expect("channel is optional");
+        let parsed: serde_json::Value = serde_json::from_str(&config).expect("valid json");
+        assert_eq!(parsed["agents"]["list"][0]["id"], "agent-1");
+        let workspace = parsed["agents"]["list"][0]["workspace"]
+            .as_str()
+            .expect("workspace emitted");
+        assert_eq!(workspace, default_workspace_dir().display().to_string());
+        assert_eq!(parsed["bindings"].as_array().map(Vec::len), Some(0));
+        assert!(env.is_empty());
+    }
+
+    #[test]
+    fn ensure_workspace_bootstrap_files_creates_file_without_shell() {
+        let tmp_dir = std::env::temp_dir().join(gen_id("easy-openclaw-bootstrap"));
+        let state = PersistedState {
+            agents: vec![Agent {
+                id: "agent-1".into(),
+                display_name: "main".into(),
+                model_id: "model-1".into(),
+                model_override: None,
+                channel_id: None,
+                workspace_path: Some(tmp_dir.display().to_string()),
+                security: AgentSecuritySettings::default(),
+            }],
+            ..PersistedState::default()
+        };
+
+        let created = ensure_workspace_bootstrap_files(&state).expect("bootstrap file created");
+        let bootstrap = tmp_dir.join("BOOTSTRAP.md");
+        assert_eq!(created.len(), 1);
+        assert!(bootstrap.exists());
+        let text = fs::read_to_string(&bootstrap).expect("bootstrap readable");
+        assert!(text.contains("initialized by easy-openclaw"));
+        let _ = fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
@@ -4703,7 +4906,7 @@ mod tests {
 
     #[test]
     fn backup_existing_file_creates_timestamped_copy() {
-        let tmp_dir = std::env::temp_dir().join(gen_id("easyclaw-backup"));
+        let tmp_dir = std::env::temp_dir().join(gen_id("easy-openclaw-backup"));
         let _ = fs::create_dir_all(&tmp_dir);
         let path = tmp_dir.join("openclaw.json");
         fs::write(&path, "{\"a\":1}").expect("must write source");

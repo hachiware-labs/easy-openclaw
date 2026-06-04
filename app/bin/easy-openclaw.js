@@ -33,10 +33,10 @@ if (args.includes("--doctor")) {
 }
 
 const nativeBinaryRelByPlatform = {
-  "darwin-x64": "bin/native/darwin-x64/EasyClaw.app/Contents/MacOS/easyclaw",
-  "darwin-arm64": "bin/native/darwin-arm64/easyclaw",
-  "linux-x64": "bin/native/linux-x64/easyclaw",
-  "win32-x64": "bin/native/win32-x64/easyclaw.exe",
+  "darwin-x64": "bin/native/darwin-x64/easy-openclaw.app/Contents/MacOS/easy-openclaw",
+  "darwin-arm64": "bin/native/darwin-arm64/easy-openclaw",
+  "linux-x64": "bin/native/linux-x64/easy-openclaw",
+  "win32-x64": "bin/native/win32-x64/easy-openclaw.exe",
 };
 
 const platformKey = `${process.platform}-${process.arch}`;
@@ -54,6 +54,15 @@ if (!existsSync(nativeBinary)) {
   process.exit(1);
 }
 
-const child = spawn(nativeBinary, args, { cwd: rootDir, stdio: "inherit" });
+const childEnv = { ...process.env };
+childEnv.EASY_OPENCLAW_ROOT = rootDir;
+if (!childEnv.EASY_OPENCLAW_DATA_DIR) {
+  const dataRoot = process.env.LOCALAPPDATA || process.env.APPDATA || process.env.HOME || process.env.USERPROFILE;
+  if (dataRoot) {
+    childEnv.EASY_OPENCLAW_DATA_DIR = path.join(dataRoot, "easy-openclaw");
+  }
+}
+
+const child = spawn(nativeBinary, args, { cwd: rootDir, env: childEnv, stdio: "inherit" });
 
 child.on("exit", (code) => process.exit(code ?? 1));

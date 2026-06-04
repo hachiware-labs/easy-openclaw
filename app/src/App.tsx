@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { message, open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { confirm, message, open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import crayfishIcon from "./assets/easyclaw-logo.png";
+import crayfishIcon from "./assets/easy-openclaw-logo.png";
 import "./App.css";
 
 type ProviderType =
@@ -28,6 +29,8 @@ type MaintenanceCommandResult = {
   summary: string;
 };
 
+type MaintenanceCommand = "check_openclaw_update" | "check_clawhub_update";
+
 type MaintenanceToolStatus = {
   installed: boolean;
   version?: string | null;
@@ -37,6 +40,20 @@ type MaintenanceStatusResult = {
   openclaw: MaintenanceToolStatus;
   clawhub: MaintenanceToolStatus;
 };
+
+function BusyIndicator({ label }: { label: string }) {
+  return (
+    <span className="busy-indicator" aria-live="polite">
+      <span className="busy-spinner" aria-hidden="true" />
+      <span>{label}</span>
+      <span className="busy-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+    </span>
+  );
+}
 
 type Model = {
   id: string;
@@ -332,6 +349,18 @@ const providerModelDefaults: Record<ProviderType, string> = {
   lm_studio: "qwen2.5-coder-7b-instruct",
 };
 
+const providerOptions: { value: ProviderType; label: string }[] = [
+  { value: "open_ai", label: "OpenAI" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "google", label: "Google" },
+  { value: "open_router", label: "OpenRouter" },
+  { value: "together", label: "Together" },
+  { value: "groq", label: "Groq" },
+  { value: "lm_studio", label: "LMStudio" },
+  { value: "ollama", label: "Ollama" },
+  { value: "compatible", label: "OpenAI Compatible" },
+];
+
 const providerNeedsApiKey = (provider: ProviderType, openAiAuthMode: OpenAiAuthMode): boolean => {
   if (provider === "open_ai" && openAiAuthMode === "oauth") return false;
   return !["ollama", "lm_studio"].includes(provider);
@@ -448,6 +477,7 @@ function App() {
   const [showSkillSearchPanel, setShowSkillSearchPanel] = useState(false);
 
   const [runMode, setRunMode] = useState<RunMode>("a");
+  const [runStopping, setRunStopping] = useState(false);
   const [resolvedConfigPath, setResolvedConfigPath] = useState("");
   const [resolvedEnvPath, setResolvedEnvPath] = useState("");
   const [resolvedApprovalsPath, setResolvedApprovalsPath] = useState("");
@@ -470,9 +500,13 @@ function App() {
   const [experimentNote, setExperimentNote] = useState("");
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
   const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [maintenanceBusyCommand, setMaintenanceBusyCommand] = useState<MaintenanceCommand | "">("");
   const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatusResult | null>(null);
   const [maintenanceStatusLoading, setMaintenanceStatusLoading] = useState(false);
   const [providerModelCandidatesDynamic, setProviderModelCandidatesDynamic] = useState<string[]>([]);
+  const [providerModelCandidatesLoading, setProviderModelCandidatesLoading] = useState(false);
+  const snapshotRef = useRef(snapshot);
+  const closeConfirmedRef = useRef(false);
 
   const modelOptions = useMemo(() => snapshot.models, [snapshot.models]);
   const channelOptions = useMemo(() => snapshot.channels, [snapshot.channels]);
@@ -501,9 +535,95 @@ function App() {
   const [uiLang, setUiLang] = useState<UiLang>(initialUiLang);
   const t = (ja: string, en: string) => (uiLang === "ja" ? ja : en);
 
+  function providerTypeHelp(type: ProviderType): string {
+    switch (type) {
+      case "open_ai":
+        return t("OpenAI公式のAPIまたはChatGPT/Codex OAuthを使います。", "Uses the official OpenAI API or ChatGPT/Codex OAuth.");
+      case "anthropic":
+        return t("Anthropic Claude APIへ接続します。API Keyが必要です。", "Connects to Anthropic Claude. Requires an API key.");
+      case "google":
+        return t("Google Gemini APIへ接続します。API Keyが必要です。", "Connects to Google Gemini. Requires an API key.");
+      case "open_router":
+        return t("OpenRouter経由で複数Providerのモデルを使います。", "Uses models from multiple providers through OpenRouter.");
+      case "together":
+        return t("Together AIのホスト済みモデルへ接続します。", "Connects to hosted models on Together AI.");
+      case "groq":
+        return t("Groqの高速推論APIへ接続します。", "Connects to Groq's fast inference API.");
+      case "lm_studio":
+        return t("このPCで起動したLM Studioのローカルサーバーへ接続します。", "Connects to a local LM Studio server running on this PC.");
+      case "ollama":
+        return t("このPCで起動したOllamaへ接続します。", "Connects to Ollama running on this PC.");
+      case "compatible":
+        return t("OpenAI互換APIを持つ任意のサーバーへ接続します。Base URLを指定してください。", "Connects to any OpenAI-compatible API server. Set its Base URL.");
+    }
+  }
+
+  function openAiAuthModeHelp(mode: OpenAiAuthMode): string {
+    return mode === "oauth"
+      ? t("ChatGPTプランのOAuth認証を使います。保存時にOpenClawの認証セットアップを起動します。", "Uses ChatGPT plan OAuth. Saving starts OpenClaw auth setup.")
+      : t("OpenAI API Keyを使います。通常のAPI課金/利用枠で動かす場合はこちらです。", "Uses an OpenAI API key. Choose this for normal API billing and quotas.");
+  }
+
+  function channelTypeHelp(type: ChannelType): string {
+    switch (type) {
+      case "slack":
+        return t("SlackのチャンネルやDMからAgentへメッセージを渡します。", "Routes Slack channel or DM messages to an agent.");
+      case "discord":
+        return t("Discord Bot経由でAgentへメッセージを渡します。", "Routes messages to an agent through a Discord bot.");
+      case "telegram":
+        return t("Telegram Bot経由でAgentへメッセージを渡します。", "Routes messages to an agent through a Telegram bot.");
+    }
+  }
+
+  function gatewayModeHelp(mode: GatewayMode): string {
+    return mode === "remote"
+      ? t("別サーバーで起動しているgatewayへ接続します。初回は通常不要です。", "Connects to a gateway running on another server. Usually unnecessary for first setup.")
+      : t("この端末でgatewayを起動します。通常はこちらのままで進めます。", "Starts the gateway on this device. Keep this for the normal setup.");
+  }
+
+  function gatewayBindHelp(bind: string): string {
+    switch (bind) {
+      case "loopback":
+        return t("このPC内からだけ接続できます。最も安全な標準設定です。", "Only this PC can connect. This is the safest default.");
+      case "lan":
+        return t("同じLAN内の端末から接続できます。必要な場合だけ使います。", "Devices on the same LAN can connect. Use only when needed.");
+      case "tailnet":
+        return t("Tailscaleのネットワーク内から接続できます。Tailnet運用向けです。", "Devices in your Tailscale network can connect. For Tailnet setups.");
+      case "auto":
+        return t("OpenClawに接続先の選択を任せます。迷う場合はloopbackを使います。", "Lets OpenClaw choose the bind target. Use loopback if unsure.");
+      case "custom":
+        return t("手動指定用です。ネットワーク設定を理解している場合だけ使います。", "For manual network configuration. Use only if you understand the network setup.");
+      default:
+        return "";
+    }
+  }
+
+  function gatewayAuthModeHelp(mode: string): string {
+    return mode === "password"
+      ? t("Dashboard等のアクセスにパスワード形式の認証値を使います。", "Uses a password-style secret for Dashboard and gateway access.")
+      : t("Dashboard等のアクセスにトークン形式の認証値を使います。標準はこちらです。", "Uses a token-style secret for Dashboard and gateway access. This is the default.");
+  }
+
+  function tailscaleModeHelp(mode: string): string {
+    switch (mode) {
+      case "serve":
+        return t("Tailscale ServeでTailnet内へ公開します。", "Publishes inside your Tailnet with Tailscale Serve.");
+      case "funnel":
+        return t("Tailscale Funnelで外部公開します。公開範囲に注意してください。", "Publishes externally with Tailscale Funnel. Be careful with exposure.");
+      default:
+        return t("Tailscale公開を使いません。通常はこちらです。", "Does not use Tailscale publishing. This is the normal setting.");
+    }
+  }
+
+  function runModeHelp(mode: RunMode): string {
+    return mode === "b"
+      ? t("すでに別の方法でgatewayを起動している場合に、その状態を確認します。", "Use this when the gateway was already started another way.")
+      : t("easy-openclawがgatewayを起動・停止します。通常はこちらです。", "easy-openclaw starts and stops the gateway. This is the normal mode.");
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("easyclaw_ui_lang");
+    const saved = window.localStorage.getItem("easy-openclaw_ui_lang");
     if (saved === "ja" || saved === "en") {
       setUiLang(saved);
     }
@@ -511,7 +631,65 @@ function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem("easyclaw_ui_lang", uiLang);
+    window.localStorage.setItem("easy-openclaw_ui_lang", uiLang);
+  }, [uiLang]);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    let disposed = false;
+    const unlistenPromise = appWindow.onCloseRequested(async (event) => {
+      if (closeConfirmedRef.current) return;
+      const current = snapshotRef.current;
+      const gatewayMayBeRunning =
+        current.run_status.running ||
+        current.run_status.can_stop ||
+        current.run_status.health === "ready" ||
+        current.run_status.health === "starting" ||
+        current.run_status.port_in_use;
+      if (!gatewayMayBeRunning) return;
+
+      event.preventDefault();
+      const stopOpenClaw = await confirm(
+        t(
+          "OpenClaw gateway が起動中の可能性があります。easy-openclawを閉じる前にOpenClawも停止しますか？",
+          "OpenClaw gateway may still be running. Stop OpenClaw before closing easy-openclaw?",
+        ),
+        {
+          title: "easy-openclaw",
+          kind: "warning",
+          okLabel: t("OpenClawも停止して閉じる", "Stop OpenClaw and Close"),
+          cancelLabel: t("閉じるだけ", "Close only"),
+        },
+      );
+
+      if (stopOpenClaw) {
+        try {
+          await invoke("stop_gateway_for_exit");
+        } catch {
+          await message(
+            t(
+              "OpenClawの停止に失敗しました。Runタブまたはターミナルから停止状態を確認してください。",
+              "Failed to stop OpenClaw. Check the Run tab or terminal for the process state.",
+            ),
+            { title: "easy-openclaw", kind: "warning" },
+          );
+        }
+      }
+
+      closeConfirmedRef.current = true;
+      if (!disposed) {
+        await appWindow.close();
+      }
+    });
+
+    return () => {
+      disposed = true;
+      unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
+    };
   }, [uiLang]);
 
   useEffect(() => {
@@ -528,28 +706,6 @@ function App() {
       }
     })();
   }, [activeTab]);
-
-  useEffect(() => {
-    if (!showModelForm || !useModelDropdown) return;
-    let alive = true;
-    (async () => {
-      try {
-        const dynamic = await invoke<string[]>("list_provider_model_candidates", {
-          providerType,
-          openAiAuthMode: providerType === "open_ai" ? openAiAuthMode : null,
-        });
-        if (!alive) return;
-        const normalized = Array.from(new Set((dynamic ?? []).filter((v) => !!v?.trim())));
-        setProviderModelCandidatesDynamic(normalized);
-      } catch {
-        if (!alive) return;
-        setProviderModelCandidatesDynamic([]);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [showModelForm, useModelDropdown, providerType, openAiAuthMode]);
 
   function nextChannelAccountId(type: ChannelType): string {
     const label = type === "slack" ? "slack" : type === "discord" ? "discord" : "telegram";
@@ -791,6 +947,43 @@ function App() {
     setNotice("");
   }
 
+  function selectProviderType(next: ProviderType) {
+    setProviderModelCandidatesDynamic([]);
+    setProviderType(next);
+    const nextOpenAiAuthMode = next === "open_ai" ? openAiAuthMode : "api_key";
+    const nextDefault =
+      next === "open_ai"
+        ? (nextOpenAiAuthMode === "oauth" ? openAiOauthDefaultModel : openAiApiDefaultModel)
+        : providerModelDefaults[next];
+    setProviderModel(nextDefault);
+    if (next !== "open_ai") setOpenAiAuthMode("api_key");
+    if (!providerNeedsApiKey(next, nextOpenAiAuthMode)) setProviderApiKey("");
+  }
+
+  async function refreshProviderModelCandidates() {
+    if (!useModelDropdown || providerModelCandidatesLoading) return;
+    setProviderModelCandidatesLoading(true);
+    setError("");
+    try {
+      const dynamic = await invoke<string[]>("list_provider_model_candidates", {
+        providerType,
+        openAiAuthMode: providerType === "open_ai" ? openAiAuthMode : null,
+      });
+      const normalized = Array.from(new Set((dynamic ?? []).filter((v) => !!v?.trim())));
+      setProviderModelCandidatesDynamic(normalized);
+      setNotice(
+        normalized.length > 0
+          ? t("Model候補を更新しました。", "Model candidates refreshed.")
+          : t("取得できるModel候補がありません。固定候補を使います。", "No model candidates were found. Using fallback candidates."),
+      );
+    } catch (e) {
+      setProviderModelCandidatesDynamic([]);
+      handleCommandError(e);
+    } finally {
+      setProviderModelCandidatesLoading(false);
+    }
+  }
+
   function onCloseModelModal() {
     setShowModelForm(false);
     setEditingModelId(null);
@@ -929,7 +1122,7 @@ function App() {
     const parsed = parseCommandError(e);
     if (parsed?.code === "ERR-ECLAW-0100") {
       setError(parsed.message);
-      setNotice(t("clawhub が必要です。`npm install -g clawhub` を実行後、再度検索してください。", "clawhub is required. Run `npm install -g clawhub` and retry."));
+      setNotice(t("clawhub が必要です。easy-openclaw を再インストールしてから再度検索してください。", "clawhub is required. Reinstall easy-openclaw and retry."));
       return true;
     }
     return false;
@@ -1068,9 +1261,19 @@ function App() {
     }
   }
 
-  async function upsertAgentDraft() {
+  async function onSaveAgent(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    setNotice("");
     const candidateId = agentId.trim() || editingAgentId || "";
-    if (!candidateId || !agentModelId) return;
+    if (!candidateId) {
+      setError(t("Agent ID を入力してください。", "Enter Agent ID."));
+      return;
+    }
+    if (!agentModelId) {
+      setError(t("Model を選択してください。", "Select a model."));
+      return;
+    }
     try {
       const saved = await invoke<Agent>("upsert_agent", {
         input: {
@@ -1110,39 +1313,18 @@ function App() {
         setAgentId(saved.id);
       }
       await refresh();
+      setNotice(editingAgentId ? t("Agentを更新しました。", "Agent updated.") : t("Agentを保存しました。", "Agent saved."));
+      setShowAgentForm(false);
+      setEditingAgentId(null);
+      setAgentWorkspaceSkills([]);
+      setSkillSearchQuery("");
+      setSkillSearchResults([]);
+      setInstallingSkillSlug("");
+      setShowSkillSearchPanel(false);
     } catch (e) {
       handleCommandError(e);
     }
   }
-
-  useEffect(() => {
-    if (!showAgentForm) return;
-    const candidateId = agentId.trim() || editingAgentId || "";
-    if (!candidateId || !agentModelId) return;
-    const timer = setTimeout(() => {
-      void upsertAgentDraft();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [
-    showAgentForm,
-    editingAgentId,
-    agentId,
-    agentModelId,
-    agentChannelId,
-    agentWorkspacePath,
-    agentExecSecurity,
-    agentExecAsk,
-    agentExecAllowlist,
-    agentAllowWorkspaceOutsideRead,
-    agentAllowWorkspaceOutsideWrite,
-    agentRequireAskForDestructive,
-    agentProtectSecretFiles,
-    agentAllowGitPush,
-    agentAllowSystemWrite,
-    agentBrowserEnabled,
-    agentBrowserAllowedDomains,
-    agentBrowserAskBeforeNavigation,
-  ]);
 
   async function onDeleteAgent(id: string) {
     setError("");
@@ -1171,9 +1353,6 @@ function App() {
       const issues: ValidationIssue[] = [];
       if (currentModels.models.length === 0) {
         issues.push({ section: "Models", message: t("モデルを1つ以上追加してください。", "Add at least one model.") });
-      }
-      if (currentModels.channels.length === 0) {
-        issues.push({ section: "Channels", message: t("チャンネルを1つ以上追加してください。", "Add at least one channel.") });
       }
       if (currentModels.agents.length === 0) {
         issues.push({ section: "Agents", message: t("エージェントを1つ以上追加してください。", "Add at least one agent.") });
@@ -1243,10 +1422,16 @@ function App() {
       const result = await invoke<{ config_path: string; env_path: string; approvals_path: string }>("apply_config", {
         input: { target_dir: null },
       });
-      setNotice(t(`設定を出力しました: ${result.config_path} / ${result.approvals_path}`, `Configuration exported: ${result.config_path} / ${result.approvals_path}`));
       setGatewayInitialized(false);
       await refresh();
       await refreshResolvedPaths();
+      setActiveTab("run");
+      setNotice(
+        t(
+          `設定を出力しました: ${result.config_path} / ${result.approvals_path}。次はRunでStartしてください。`,
+          `Configuration exported: ${result.config_path} / ${result.approvals_path}. Next, go to Run and press Start.`,
+        ),
+      );
     } catch (e) {
       handleCommandError(e);
     }
@@ -1256,14 +1441,22 @@ function App() {
     setError("");
     setNotice("");
     try {
-      await invoke("start_gateway", {
+      const started = await invoke<RunStatus>("start_gateway", {
         input: {
           mode: runMode,
           health_timeout_sec: 20,
         },
       });
-      await refresh();
-      setNotice(t("gatewayを起動しました。", "Gateway started."));
+      const snap = await refresh();
+      await refreshLogs();
+      const dashboardUrl = dashboardUrlWithTokenFor(started.dashboard_url, snap.gateway);
+      try {
+        await openUrl(dashboardUrl);
+        setNotice(t("gatewayを起動しました。Dashboardを開きました。", "Gateway started. Dashboard opened."));
+      } catch (openError) {
+        setNotice(t("gatewayを起動しました。Dashboard URLはRun画面から開けます。", "Gateway started. You can open the Dashboard URL from Run."));
+        handleCommandError(openError);
+      }
     } catch (e) {
       handleCommandError(e);
     }
@@ -1272,12 +1465,15 @@ function App() {
   async function onStop() {
     setError("");
     setNotice("");
+    setRunStopping(true);
     try {
       await invoke("stop_gateway");
       await refresh();
       setNotice(t("gatewayを停止しました。", "Gateway stopped."));
     } catch (e) {
       handleCommandError(e);
+    } finally {
+      setRunStopping(false);
     }
   }
 
@@ -1290,20 +1486,24 @@ function App() {
     }
   }
 
-  function dashboardUrlWithToken(): string {
+  function dashboardUrlWithTokenFor(dashboardUrl: string, gateway: GatewaySettings): string {
     const token =
-      (snapshot.gateway.mode === "remote"
-        ? snapshot.gateway.remote_token
-        : snapshot.gateway.auth_token) ?? "";
+      (gateway.mode === "remote"
+        ? gateway.remote_token
+        : gateway.auth_token) ?? "";
     const trimmed = token.trim();
-    if (!trimmed) return snapshot.run_status.dashboard_url;
+    if (!trimmed) return dashboardUrl;
     try {
-      const url = new URL(snapshot.run_status.dashboard_url);
+      const url = new URL(dashboardUrl);
       url.hash = `token=${encodeURIComponent(trimmed)}`;
       return url.toString();
     } catch {
-      return snapshot.run_status.dashboard_url;
+      return dashboardUrl;
     }
+  }
+
+  function dashboardUrlWithToken(): string {
+    return dashboardUrlWithTokenFor(snapshot.run_status.dashboard_url, snapshot.gateway);
   }
 
   async function onOpenDashboardWithToken() {
@@ -1336,10 +1536,16 @@ function App() {
     }
   }
 
-  async function onRunMaintenanceCommand(command: "install_openclaw" | "install_clawhub") {
+  async function onRunMaintenanceCommand(command: MaintenanceCommand) {
     setError("");
     setNotice("");
     setMaintenanceBusy(true);
+    setMaintenanceBusyCommand(command);
+    setNotice(
+      command === "check_openclaw_update"
+        ? t("OpenClaw の更新を確認しています。完了まで待ってください。", "Checking OpenClaw updates. Wait until it finishes.")
+        : t("Clawhub の更新を確認しています。完了まで待ってください。", "Checking Clawhub updates. Wait until it finishes."),
+    );
     try {
       const result = await invoke<MaintenanceCommandResult>("run_maintenance_command", { command });
       setNotice(result.summary);
@@ -1351,6 +1557,7 @@ function App() {
     } finally {
       setMaintenanceStatusLoading(false);
       setMaintenanceBusy(false);
+      setMaintenanceBusyCommand("");
     }
   }
 
@@ -1358,7 +1565,7 @@ function App() {
     <main className="app-shell">
       <header className="top-bar">
         <div>
-          <h1>EasyClaw</h1>
+          <h1>easy-openclaw</h1>
           <p>{t("OpenClawオンボーディング用ブートストラップ", "OpenClaw onboarding bootstrap")}</p>
         </div>
         <div className="top-bar-actions">
@@ -1369,7 +1576,7 @@ function App() {
               <option value="en">🇺🇸 English</option>
             </select>
           </label>
-          <img className="brand-icon" src={crayfishIcon} alt="EasyClaw logo" />
+          <img className="brand-icon" src={crayfishIcon} alt="easy-openclaw logo" />
         </div>
       </header>
 
@@ -1378,7 +1585,7 @@ function App() {
         <button onClick={() => setActiveTab("run")} className={activeTab === "run" ? "active" : ""}>Run</button>
         <button onClick={() => setActiveTab("diagnostics")} className={activeTab === "diagnostics" ? "active" : ""}>{t("診断", "Diagnostics")}</button>
         <button onClick={() => setActiveTab("maintenance")} className={activeTab === "maintenance" ? "active" : ""}>
-          {t("インストール", "Install")}
+          {t("更新確認", "Updates")}
         </button>
       </nav>
 
@@ -1402,11 +1609,14 @@ function App() {
               <h2>Models</h2>
               <button type="button" onClick={onOpenCreateModel} disabled={isModelEditing}>{t("モデルを追加", "Add Model")}</button>
             </div>
+            <p className="panel-subtitle">
+              {t("AIの接続先です。まず1つ登録すると、Agent作成で選べるようになります。", "AI connection targets. Add at least one so agents can use it.")}
+            </p>
             <p className="rule-note">
               {t("Model変更はドラフトとして保持され、ファイルへの保存はApply時に行います。", "Model changes stay in draft and are written to files on Apply.")}
             </p>
             {modelOptions.length === 0 ? (
-              <p className="empty-state">{t("現在のモデルはありません。", "No models configured.")}</p>
+              <p className="empty-state">{t("現在のモデルはありません。最初に使うLLMを追加してください。", "No models configured. Add the LLM you want to use first.")}</p>
             ) : (
               <table className="list-table">
                 <thead><tr><th>Model</th><th>Actions</th></tr></thead>
@@ -1433,8 +1643,11 @@ function App() {
               <h2>Channels</h2>
               <button type="button" onClick={onOpenCreateChannel} disabled={isChannelEditing}>{t("チャンネルを追加", "Add Channel")}</button>
             </div>
+            <p className="panel-subtitle">
+              {t("Slackなど外部チャットとの接続です。チャット画面から使わない場合は未設定のままで進めます。", "External chat connections such as Slack. Leave this empty if you do not need chat integration yet.")}
+            </p>
             {snapshot.channels.length === 0 ? (
-              <p className="empty-state">{t("現在のチャンネルはありません。", "No channels configured.")}</p>
+              <p className="empty-state">{t("現在のチャンネルはありません。外部チャット連携は任意です。", "No channels configured. External chat integration is optional.")}</p>
             ) : (
               <table className="list-table">
                 <thead><tr><th>ID</th><th>Type</th><th>Route</th><th>Actions</th></tr></thead>
@@ -1461,8 +1674,11 @@ function App() {
               <h2>Agents</h2>
               <button type="button" onClick={onOpenCreateAgent} disabled={isAgentEditing}>{t("エージェントを追加", "Add Agent")}</button>
             </div>
+            <p className="panel-subtitle">
+              {t("Agentは「どのモデルを、どの作業フォルダで動かすか」をまとめた実行単位です。", "An agent is the runnable unit: which model to use and which workspace it works in.")}
+            </p>
             {snapshot.agents.length === 0 ? (
-              <p className="empty-state">{t("現在のエージェントはありません。", "No agents configured.")}</p>
+              <p className="empty-state">{t("現在のエージェントはありません。モデルを追加したら、次にAgentを作成してください。", "No agents configured. After adding a model, create an agent next.")}</p>
             ) : (
               <table className="list-table">
                 <thead><tr><th>ID</th><th>Model</th><th>Channel</th><th>Workspace</th><th>Actions</th></tr></thead>
@@ -1488,6 +1704,9 @@ function App() {
             <div className="panel-head">
               <h2>Gateway</h2>
             </div>
+            <p className="panel-subtitle">
+              {t("OpenClawの実行サーバー設定です。初回は標準のLocal/loopbackのままがおすすめです。", "OpenClaw runtime server settings. For first setup, keep the standard Local/loopback values.")}
+            </p>
             <div className="form-grid">
               <label>
                 Gateway Mode
@@ -1495,6 +1714,7 @@ function App() {
                   <option value="local">{t("Local (この端末で起動)", "Local (run on this device)")}</option>
                   <option value="remote">{t("Remote/VPS (外部gatewayへ接続)", "Remote/VPS (connect to external gateway)")}</option>
                 </select>
+                <span className="field-help">{gatewayModeHelp(gatewayMode)}</span>
               </label>
               {gatewayMode === "local" && (
                 <>
@@ -1507,10 +1727,12 @@ function App() {
                       <option value="auto">auto</option>
                       <option value="custom">custom</option>
                     </select>
+                    <span className="field-help">{gatewayBindHelp(gatewayBind)}</span>
                   </label>
                   <label>
                     Port
                     <input className="form-control" type="number" min={1} max={65535} value={gatewayPort} onChange={(e) => setGatewayPort(e.target.value)} />
+                    <span className="field-help">{t("gatewayが待ち受ける番号です。競合がなければ標準値のままで構いません。", "The port the gateway listens on. Keep the default unless it conflicts.")}</span>
                   </label>
                   <label className="full-row">
                     Auth
@@ -1532,6 +1754,7 @@ function App() {
                         </button>
                       </div>
                     </div>
+                    <span className="field-help">{gatewayAuthModeHelp(gatewayAuthMode)}</span>
                   </label>
                   <label>
                     Tailscale
@@ -1540,6 +1763,7 @@ function App() {
                       <option value="serve">serve</option>
                       <option value="funnel">funnel</option>
                     </select>
+                    <span className="field-help">{tailscaleModeHelp(gatewayTailscaleMode)}</span>
                   </label>
                 </>
               )}
@@ -1548,6 +1772,7 @@ function App() {
                   <label className="full-row">
                     Remote URL (VPS)
                     <input className="form-control" value={gatewayRemoteUrl} onChange={(e) => setGatewayRemoteUrl(e.target.value)} placeholder="ws://vps.example.com:18789" />
+                    <span className="field-help">{t("接続先gatewayのWebSocket URLです。Remote運用時だけ必要です。", "WebSocket URL of the remote gateway. Required only for remote setups.")}</span>
                   </label>
                   <label className="full-row">
                     Remote Token
@@ -1562,6 +1787,7 @@ function App() {
                         {showGatewayRemoteToken ? "Hide" : "Show"}
                       </button>
                     </div>
+                    <span className="field-help">{t("Remote gatewayへ接続するための認証値です。接続先側と同じ値を入れます。", "Secret used to authenticate to the remote gateway. It must match the remote side.")}</span>
                   </label>
                 </>
               )}
@@ -1573,6 +1799,9 @@ function App() {
               <h2>Apply</h2>
               <button type="button" onClick={onApplyConfig}>Apply Config</button>
             </div>
+            <p className="panel-subtitle">
+              {t("画面上のドラフト設定をOpenClawが読むファイルへ保存します。Runの前に実行してください。", "Writes the draft settings into files that OpenClaw reads. Run this before starting.")}
+            </p>
             <p className="path-line">{t("保存先", "Config path")}: <code>{resolvedConfigPath || "(resolving...)"}</code></p>
             <p className="path-line">{t("環境変数", "Env file")}: <code>{resolvedEnvPath || "(resolving...)"}</code></p>
             <p className="path-line">Exec Approvals: <code>{resolvedApprovalsPath || "(resolving...)"}</code></p>
@@ -1588,23 +1817,18 @@ function App() {
             <form onSubmit={onCreateProvider} className="form-grid">
               <label className="full-row">
                 Provider
-                <select className="form-select" value={providerType} onChange={(e) => {
-                  const next = e.target.value as ProviderType;
-                  setProviderModelCandidatesDynamic([]);
-                  setProviderType(next);
-                  const nextDefault =
-                    next === "open_ai"
-                      ? (openAiAuthMode === "oauth" ? openAiOauthDefaultModel : openAiApiDefaultModel)
-                      : providerModelDefaults[next];
-                  setProviderModel(nextDefault);
-                  if (next !== "open_ai") setOpenAiAuthMode("api_key");
-                  if (!providerNeedsApiKey(next, openAiAuthMode)) setProviderApiKey("");
-                }}>
-                  <option value="open_ai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option>
-                  <option value="open_router">OpenRouter</option><option value="together">Together</option><option value="groq">Groq</option>
-                  <option value="lm_studio">LMStudio</option><option value="ollama">Ollama</option>
-                  <option value="compatible">{t("OpenAI互換", "OpenAI Compatible")}</option>
+                <select
+                  className="form-select"
+                  value={providerType}
+                  onChange={(e) => selectProviderType(e.target.value as ProviderType)}
+                >
+                  {providerOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.value === "compatible" ? t("OpenAI互換", option.label) : option.label}
+                    </option>
+                  ))}
                 </select>
+                <span className="field-help">{providerTypeHelp(providerType)}</span>
               </label>
               {providerType === "open_ai" && (
                 <label className="full-row">
@@ -1625,11 +1849,36 @@ function App() {
                     <option value="api_key">API Key</option>
                     <option value="oauth">{t("OAuth (ChatGPT Pro / Codex)", "OAuth (ChatGPT Pro / Codex)")}</option>
                   </select>
+                  <span className="field-help">{openAiAuthModeHelp(openAiAuthMode)}</span>
                 </label>
               )}
-              <label className="full-row">Base URL<input className="form-control" value={providerBaseUrl} onChange={(e) => setProviderBaseUrl(e.target.value)} placeholder={providerBaseUrlPlaceholder || t("compatibleは入力必須", "required for compatible provider")} /></label>
+              <label className="full-row">
+                Base URL
+                <input className="form-control" value={providerBaseUrl} onChange={(e) => setProviderBaseUrl(e.target.value)} placeholder={providerBaseUrlPlaceholder || t("compatibleは入力必須", "required for compatible provider")} />
+                <span className="field-help">
+                  {providerType === "compatible"
+                    ? t("OpenAI互換サーバーのURLです。例: http://localhost:1234/v1", "URL of the OpenAI-compatible server. Example: http://localhost:1234/v1")
+                    : t("空欄なら標準の接続先を使います。LM Studio/OllamaではローカルURLを指定できます。", "Leave empty to use the standard endpoint. For LM Studio/Ollama, set the local URL if needed.")}
+                </span>
+              </label>
               {useModelDropdown ? (
                 <>
+                  <div className="model-candidate-toolbar full-row">
+                    <span>
+                      {t("Model候補", "Model candidates")}
+                      <small className="inline-help">{t("候補更新でOpenClawから利用可能モデルを取得します。", "Refresh asks OpenClaw for available models.")}</small>
+                    </span>
+                    <button
+                      type="button"
+                      className="table-action-btn action-probe"
+                      onClick={refreshProviderModelCandidates}
+                      disabled={providerModelCandidatesLoading}
+                    >
+                      {providerModelCandidatesLoading
+                        ? <BusyIndicator label={t("取得中", "Loading")} />
+                        : t("候補更新", "Refresh candidates")}
+                    </button>
+                  </div>
                   <label className="full-row">
                     Model Name
                     <select
@@ -1649,16 +1898,22 @@ function App() {
                       ))}
                       <option value="__custom__">{t("カスタム入力", "Custom input")}</option>
                     </select>
+                    <span className="field-help">{t("Agentが実際に使うモデルIDです。候補にない場合はカスタム入力を選びます。", "Model ID the agent will actually use. Choose custom input if it is not in the list.")}</span>
                   </label>
                   {selectedModelOption === "__custom__" && (
                     <label className="full-row">
                       {t("カスタムModel Name", "Custom Model Name")}
                       <input className="form-control" value={providerModel} onChange={(e) => setProviderModel(e.target.value)} placeholder={providerModelPlaceholder} />
+                      <span className="field-help">{t("Provider側で受け付ける正確なモデルIDを入力してください。", "Enter the exact model ID accepted by the provider.")}</span>
                     </label>
                   )}
                 </>
               ) : (
-                <label className="full-row">Model Name<input className="form-control" value={providerModel} onChange={(e) => setProviderModel(e.target.value)} placeholder={providerModelPlaceholder} /></label>
+                <label className="full-row">
+                  Model Name
+                  <input className="form-control" value={providerModel} onChange={(e) => setProviderModel(e.target.value)} placeholder={providerModelPlaceholder} />
+                  <span className="field-help">{t("ローカルProvider側でロード済み、またはpull済みのモデル名を入力します。", "Enter a model name loaded or pulled in the local provider.")}</span>
+                </label>
               )}
               {providerNeedsApiKey(providerType, openAiAuthMode) && (
                 <label className="full-row">
@@ -1669,6 +1924,7 @@ function App() {
                       {showProviderApiKey ? "Hide" : "Show"}
                     </button>
                   </div>
+                  <span className="field-help">{t("外部APIへ接続する場合に使います。LM Studio/OllamaやOpenAI OAuthでは不要です。", "Used for external APIs. Not needed for LM Studio/Ollama or OpenAI OAuth.")}</span>
                 </label>
               )}
               <div className="modal-actions"><button type="submit">{editingModelId ? t("モデルを更新", "Update Model") : t("モデルを追加", "Add Model")}</button><button type="button" onClick={onCloseModelModal}>Cancel</button></div>
@@ -1687,8 +1943,13 @@ function App() {
                 <select className="form-select" value={channelType} onChange={(e) => resetChannelForm(e.target.value as ChannelType)}>
                   <option value="slack">Slack</option><option value="discord">Discord</option><option value="telegram">Telegram</option>
                 </select>
+                <span className="field-help">{channelTypeHelp(channelType)}</span>
               </label>
-              <label className="full-row">Account ID<input className="form-control" value={channelAccountId} onChange={(e) => setChannelAccountId(e.target.value.toLowerCase())} placeholder={nextChannelAccountId(channelType)} /></label>
+              <label className="full-row">
+                Account ID
+                <input className="form-control" value={channelAccountId} onChange={(e) => setChannelAccountId(e.target.value.toLowerCase())} placeholder={nextChannelAccountId(channelType)} />
+                <span className="field-help">{t("easy-openclaw内で見分けるための名前です。SlackのチャンネルIDとは別です。", "A local name used inside easy-openclaw. This is not the Slack channel ID.")}</span>
+              </label>
               {channelType === "slack" && (
                 <>
                   <div className="channel-help full-row">
@@ -1703,7 +1964,11 @@ function App() {
                       <li>{t("チャンネルIDは Slack のチャンネル詳細か URL 末尾の `C...` を使う。", "Use the channel ID from Slack details or the URL suffix `C...`.")}</li>
                     </ol>
                   </div>
-                  <label className="full-row">Slack Channels (allowlist)<input className="form-control" value={channelSlackChannels} onChange={(e) => setChannelSlackChannels(e.target.value)} placeholder="C0123456789, C0987654321" /></label>
+                  <label className="full-row">
+                    Slack Channels (allowlist)
+                    <input className="form-control" value={channelSlackChannels} onChange={(e) => setChannelSlackChannels(e.target.value)} placeholder="C0123456789, C0987654321" />
+                    <span className="field-help">{t("Agentが反応するSlackチャンネルIDです。複数ある場合はカンマで区切ります。", "Slack channel IDs the agent should respond to. Separate multiple IDs with commas.")}</span>
+                  </label>
                   <label className="full-row">
                     Slack Bot Token
                     <div className="input-with-button">
@@ -1712,6 +1977,7 @@ function App() {
                         {showChannelSlackBotToken ? "Hide" : "Show"}
                       </button>
                     </div>
+                    <span className="field-help">{t("Slackへ投稿・履歴取得するBot User OAuth Tokenです。通常は xoxb- で始まります。", "Bot User OAuth Token used to post and read Slack history. Usually starts with xoxb-.")}</span>
                   </label>
                   <label className="full-row">
                     Slack App Token
@@ -1721,6 +1987,7 @@ function App() {
                         {showChannelSlackAppToken ? "Hide" : "Show"}
                       </button>
                     </div>
+                    <span className="field-help">{t("Socket ModeでSlackからイベントを受け取るApp-Level Tokenです。通常は xapp- で始まります。", "App-level token used by Socket Mode to receive Slack events. Usually starts with xapp-.")}</span>
                   </label>
                 </>
               )}
@@ -1733,6 +2000,7 @@ function App() {
                       {showChannelDiscordBotToken ? "Hide" : "Show"}
                     </button>
                   </div>
+                  <span className="field-help">{t("Discord Developer Portalで作成したBot Tokenです。", "Bot token created in the Discord Developer Portal.")}</span>
                 </label>
               )}
               {channelType === "telegram" && (
@@ -1744,6 +2012,7 @@ function App() {
                       {showChannelTelegramBotToken ? "Hide" : "Show"}
                     </button>
                   </div>
+                  <span className="field-help">{t("BotFatherで発行したTelegram Bot Tokenです。", "Telegram bot token issued by BotFather.")}</span>
                 </label>
               )}
               <div className="modal-actions"><button type="submit">{editingChannelId ? "Update Channel" : "Save Channel"}</button><button type="button" onClick={onCloseChannelModal}>Cancel</button></div>
@@ -1756,15 +2025,20 @@ function App() {
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Agent Editor">
           <div className="modal-card">
             <div className="modal-head"><h3>{editingAgentId ? t("エージェントを編集", "Edit Agent") : t("エージェントを追加", "Add Agent")}</h3><button type="button" onClick={onCloseAgentModal}>{t("閉じる", "Close")}</button></div>
-            <div className="form-grid">
-              <label className="full-row">Agent ID<input className="form-control" value={agentId} onChange={(e) => setAgentId(e.target.value)} placeholder="agent-main" /></label>
-              <p className="rule-note full-row">{t("この画面の変更は自動で反映されます。設定ファイルへの保存は最後に Apply を実行してください。", "Changes in this dialog are auto-applied to draft state. Run Apply to write files.")}</p>
+            <form onSubmit={onSaveAgent} className="form-grid">
+              <label className="full-row">
+                Agent ID
+                <input className="form-control" value={agentId} onChange={(e) => setAgentId(e.target.value)} placeholder="agent-main" />
+                <span className="field-help">{t("OpenClaw設定内でAgentを識別する名前です。英数字とハイフン中心の短い名前がおすすめです。", "Name used to identify this agent in OpenClaw config. A short alphanumeric/hyphen name is recommended.")}</span>
+              </label>
+              <p className="rule-note full-row">{t("Save Agentでドラフトに保存します。設定ファイルへの保存は最後に Apply を実行してください。", "Save Agent writes to draft state. Run Apply to write files.")}</p>
               <label className="full-row">
                 Model
                 <select className="form-select" value={agentModelId} onChange={(e) => setAgentModelId(e.target.value)}>
                   <option value="">Select Model</option>
                   {modelOptions.map((m) => (<option key={m.id} value={m.id}>{m.model_name}</option>))}
                 </select>
+                <span className="field-help">{t("このAgentが返答に使うAIモデルです。Modelsで追加したものから選びます。", "AI model this agent uses for replies. Choose one added in Models.")}</span>
               </label>
               <label className="full-row">
                 Channel
@@ -1772,6 +2046,7 @@ function App() {
                   <option value="">No Channel</option>
                   {channelOptions.map((c) => (<option key={c.id} value={c.id}>{c.account_id}</option>))}
                 </select>
+                <span className="field-help">{t("外部チャットと紐づける場合だけ選びます。No ChannelならRun後にDashboard等から使います。", "Choose only when linking this agent to external chat. No Channel can still be used after Run, such as from Dashboard.")}</span>
               </label>
               <label className="full-row">
                 Workspace
@@ -1779,6 +2054,7 @@ function App() {
                   <input className="form-control" value={agentWorkspacePath} onChange={(e) => setAgentWorkspacePath(e.target.value)} />
                   <button type="button" onClick={onPickWorkspace}>Browse...</button>
                 </div>
+                <span className="field-help">{t("Agentが読み書きする作業フォルダです。空や . の場合は標準workspaceへ正規化されます。", "Workspace folder the agent reads and writes. Empty or . is normalized to the default workspace.")}</span>
               </label>
               <div className="full-row channel-help">
                 <h4>Security</h4>
@@ -1791,6 +2067,7 @@ function App() {
                       <option value="deny">deny</option>
                       <option value="full">{t("full (危険)", "full (dangerous)")}</option>
                     </select>
+                    <span className="field-help">{t("コマンド実行の許可方式です。allowlistは許可リスト内だけ実行できます。", "Controls command execution. allowlist permits only listed commands.")}</span>
                   </label>
                   <label>
                     Exec Ask
@@ -1799,6 +2076,7 @@ function App() {
                       <option value="always">always</option>
                       <option value="off">off</option>
                     </select>
+                    <span className="field-help">{t("許可リストにない操作を確認するかを決めます。on-missは不足時だけ確認します。", "Controls confirmation for commands outside the allowlist. on-miss asks only when needed.")}</span>
                   </label>
                   <label className="full-row">
                     Agent Exec Allowlist
@@ -1808,20 +2086,21 @@ function App() {
                       onChange={(e) => setAgentExecAllowlist(e.target.value)}
                       placeholder={"/opt/homebrew/bin/rg\n/opt/homebrew/bin/git\n/bin/sh"}
                     />
+                    <span className="field-help">{t("Agentが実行できるコマンドのパスです。1行に1つずつ書きます。", "Command paths the agent may run. Enter one command per line.")}</span>
                   </label>
                 </div>
                 <div className="form-grid">
-                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowWorkspaceOutsideRead} onChange={(e) => setAgentAllowWorkspaceOutsideRead(e.target.checked)} /> {t("Workspace外のreadを許可", "Allow reads outside workspace")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowWorkspaceOutsideWrite} onChange={(e) => setAgentAllowWorkspaceOutsideWrite(e.target.checked)} /> {t("Workspace外のwriteを許可", "Allow writes outside workspace")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentRequireAskForDestructive} onChange={(e) => setAgentRequireAskForDestructive(e.target.checked)} /> {t("破壊操作は常に確認", "Always ask for destructive operations")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentProtectSecretFiles} onChange={(e) => setAgentProtectSecretFiles(e.target.checked)} /> {t("秘密ファイルを保護 (.env/.ssh)", "Protect secret files (.env/.ssh)")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowGitPush} onChange={(e) => setAgentAllowGitPush(e.target.checked)} /> {t("git push を許可", "Allow git push")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowSystemWrite} onChange={(e) => setAgentAllowSystemWrite(e.target.checked)} /> {t("system領域 write を許可 (/usr /etc)", "Allow system writes (/usr /etc)")}</label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowWorkspaceOutsideRead} onChange={(e) => setAgentAllowWorkspaceOutsideRead(e.target.checked)} /><span>{t("Workspace外のreadを許可", "Allow reads outside workspace")}<small>{t("参照だけ許可します。書き込みは別項目です。", "Allows reading only. Writing is controlled separately.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowWorkspaceOutsideWrite} onChange={(e) => setAgentAllowWorkspaceOutsideWrite(e.target.checked)} /><span>{t("Workspace外のwriteを許可", "Allow writes outside workspace")}<small>{t("作業フォルダ外へ変更できるため、通常はOFFです。", "Usually off because it allows changes outside the workspace.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentRequireAskForDestructive} onChange={(e) => setAgentRequireAskForDestructive(e.target.checked)} /><span>{t("破壊操作は常に確認", "Always ask for destructive operations")}<small>{t("削除や上書きなどの前に確認します。", "Asks before deletion, overwrite, and similar actions.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentProtectSecretFiles} onChange={(e) => setAgentProtectSecretFiles(e.target.checked)} /><span>{t("秘密ファイルを保護 (.env/.ssh)", "Protect secret files (.env/.ssh)")}<small>{t("認証情報を含むファイルへの不用意なアクセスを抑えます。", "Reduces accidental access to files containing secrets.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowGitPush} onChange={(e) => setAgentAllowGitPush(e.target.checked)} /><span>{t("git push を許可", "Allow git push")}<small>{t("リモートリポジトリへ送信できるため、必要時だけONにします。", "Enable only when needed because it can publish to remotes.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentAllowSystemWrite} onChange={(e) => setAgentAllowSystemWrite(e.target.checked)} /><span>{t("system領域 write を許可 (/usr /etc)", "Allow system writes (/usr /etc)")}<small>{t("OS領域を変更できるため、通常はOFFです。", "Usually off because it can modify OS-level locations.")}</small></span></label>
                 </div>
                 <h4>{t("Browser (Chrome 固定)", "Browser (Chrome only)")}</h4>
                 <div className="form-grid">
-                  <label className="checkbox-row"><input type="checkbox" checked={agentBrowserEnabled} onChange={(e) => setAgentBrowserEnabled(e.target.checked)} /> {t("Browser ツールを有効化", "Enable browser tool")}</label>
-                  <label className="checkbox-row"><input type="checkbox" checked={agentBrowserAskBeforeNavigation} onChange={(e) => setAgentBrowserAskBeforeNavigation(e.target.checked)} /> {t("ページ遷移の前に確認する", "Ask before page navigation")}</label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentBrowserEnabled} onChange={(e) => setAgentBrowserEnabled(e.target.checked)} /><span>{t("Browser ツールを有効化", "Enable browser tool")}<small>{t("AgentがChromeを使ってWebページを操作できるようにします。", "Allows the agent to operate web pages through Chrome.")}</small></span></label>
+                  <label className="checkbox-row"><input type="checkbox" checked={agentBrowserAskBeforeNavigation} onChange={(e) => setAgentBrowserAskBeforeNavigation(e.target.checked)} /><span>{t("ページ遷移の前に確認する", "Ask before page navigation")}<small>{t("新しいURLへ移動する前に確認します。", "Asks before navigating to a new URL.")}</small></span></label>
                   <label className="full-row">
                     {t("Allowed Domains (1行1ドメイン / 空なら制限なし)", "Allowed Domains (one per line / empty = no restriction)")}
                     <textarea
@@ -1830,13 +2109,14 @@ function App() {
                       onChange={(e) => setAgentBrowserAllowedDomains(e.target.value)}
                       placeholder={"openai.com\nslack.com\ngithub.com"}
                     />
+                    <span className="field-help">{t("Browserツールで開けるドメインを制限します。空欄なら制限しません。", "Limits domains the browser tool may open. Empty means unrestricted.")}</span>
                   </label>
                 </div>
               </div>
               <div className="full-row channel-help">
                 <h4>Skills</h4>
                 <p className="rule-note">Workspace: <code>{agentWorkspacePath || "."}</code></p>
-                <p className="rule-note">{t("インストール済みスキル一覧", "Installed skills")}</p>
+                <p className="rule-note">{t("このWorkspaceでAgentが使える追加機能です。必要になった時だけ追加します。", "Additional abilities available to this agent in the workspace. Add them only when needed.")}</p>
                 <table className="list-table">
                   <thead>
                     <tr>
@@ -1904,7 +2184,11 @@ function App() {
                   </div>
                 )}
               </div>
-            </div>
+              <div className="modal-actions">
+                <button type="submit">{editingAgentId ? t("Agentを更新", "Update Agent") : t("Agentを保存", "Save Agent")}</button>
+                <button type="button" onClick={onCloseAgentModal}>Cancel</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1920,17 +2204,18 @@ function App() {
                   <option value="a">{t("App Parent (推奨)", "App Parent (recommended)")}</option>
                   <option value="b">{t("External Gateway (手動起動済み)", "External Gateway (already started manually)")}</option>
                 </select>
+                <span className="field-help">{runModeHelp(runMode)}</span>
               </label>
               <button className="run-action-btn run-start-btn" onClick={onStart} disabled={!snapshot.run_status.can_start} title={snapshot.run_status.start_disabled_reason ?? ""}>
                 Start
               </button>
-              <button className="run-action-btn run-stop-btn" onClick={onStop} disabled={!snapshot.run_status.can_stop} title={snapshot.run_status.stop_disabled_reason ?? ""}>
-                Stop
+              <button className="run-action-btn run-stop-btn" onClick={onStop} disabled={runStopping || !snapshot.run_status.can_stop} title={snapshot.run_status.stop_disabled_reason ?? ""}>
+                {runStopping ? t("Stopping...", "Stopping...") : "Stop"}
               </button>
               <button className="run-action-btn" onClick={onOpenDashboard}>Open Dashboard</button>
               <button className="run-action-btn" onClick={onOpenDashboardWithToken}>Open Dashboard (Token URL)</button>
             </div>
-            <p className="rule-note">{t("推奨: App Parent（EasyClawが親プロセスとしてgateway起動）", "Recommended: App Parent (EasyClaw starts gateway as parent process)")}</p>
+            <p className="rule-note">{t("推奨: App Parent（easy-openclawが親プロセスとしてgateway起動）", "Recommended: App Parent (easy-openclaw starts gateway as parent process)")}</p>
             <p className="path-line">{t("Gateway設定", "Gateway setting")}: <code>{snapshot.gateway.mode === "remote" ? `remote: ${snapshot.gateway.remote_url ?? "(unset)"}` : `local: ${snapshot.gateway.bind ?? "loopback"}:${snapshot.gateway.port ?? 18789}`}</code></p>
             <p className="path-line">{t("読取設定", "Read config")}: <code>{resolvedConfigPath || "(resolving...)"}</code></p>
             <p className="rule-note">{t("決定ルール", "Resolution rule")}: `OPENCLAW_CONFIG_PATH` → `OPENCLAW_STATE_DIR/openclaw.json` → `~/.openclaw/openclaw.json`</p>
@@ -1978,20 +2263,31 @@ function App() {
         <section className="tab-panel">
           <article className="panel">
             <div className="panel-head">
-              <h2>{t("OpenClaw / Clawhub インストール", "OpenClaw / Clawhub Install")}</h2>
+              <h2>{t("OpenClaw / Clawhub 更新確認", "OpenClaw / Clawhub Update Check")}</h2>
             </div>
             <p className="rule-note">
               {t(
-                "ボタンを押すとTerminalを開いて npm install -g を実行します。",
-                "Buttons open Terminal and run npm install -g.",
+                "OpenClaw / Clawhub は easy-openclaw の依存として導入されます。ここでは npm の最新版と現在のバージョンを比較します。",
+                "OpenClaw / Clawhub are installed as easy-openclaw dependencies. This view compares the current version with the latest npm version.",
               )}
             </p>
+            {maintenanceBusyCommand && (
+              <div className="install-progress">
+                <BusyIndicator
+                  label={
+                    maintenanceBusyCommand === "check_openclaw_update"
+                      ? t("OpenClaw の更新確認中", "Checking OpenClaw updates")
+                      : t("Clawhub の更新確認中", "Checking Clawhub updates")
+                  }
+                />
+              </div>
+            )}
             <table className="list-table">
               <thead>
                 <tr>
                   <th>{t("ソフトウェア", "Software")}</th>
                   <th>{t("説明", "Description")}</th>
-                  <th>{t("インストール状況", "Installed Version")}</th>
+                  <th>{t("現在のバージョン", "Current Version")}</th>
                   <th>{t("操作", "Actions")}</th>
                 </tr>
               </thead>
@@ -2000,20 +2296,28 @@ function App() {
                   <td>OpenClaw</td>
                   <td>{t("エージェント実行とGateway連携の本体CLI", "Core CLI for agent runtime and gateway integration")}</td>
                   <td>
-                    {maintenanceStatusLoading || !maintenanceStatus
+                    {maintenanceBusyCommand === "check_openclaw_update"
+                      ? (
+                        <BusyIndicator label={t("更新確認中", "Checking")} />
+                      )
+                      : maintenanceStatusLoading || !maintenanceStatus
                       ? t("確認中", "Checking...")
                       : maintenanceStatus?.openclaw.installed
                       ? (maintenanceStatus?.openclaw.version ?? "installed")
-                      : t("未インストール", "Not installed")}
+                      : t("未検出", "Not detected")}
                   </td>
                   <td className="action-cell">
                     <button
                       type="button"
                       className="table-action-btn action-edit"
                       disabled={maintenanceBusy}
-                      onClick={() => onRunMaintenanceCommand("install_openclaw")}
+                      onClick={() => onRunMaintenanceCommand("check_openclaw_update")}
                     >
-                      {t("インストール/更新", "Install/Update")}
+                      {maintenanceBusyCommand === "check_openclaw_update"
+                        ? (
+                          <BusyIndicator label={t("確認中", "Checking")} />
+                        )
+                        : t("更新確認", "Check Update")}
                     </button>
                   </td>
                 </tr>
@@ -2021,26 +2325,34 @@ function App() {
                   <td>Clawhub</td>
                   <td>{t("スキル検索・配布連携を行うCLI", "CLI for skill discovery and distribution integration")}</td>
                   <td>
-                    {maintenanceStatusLoading || !maintenanceStatus
+                    {maintenanceBusyCommand === "check_clawhub_update"
+                      ? (
+                        <BusyIndicator label={t("更新確認中", "Checking")} />
+                      )
+                      : maintenanceStatusLoading || !maintenanceStatus
                       ? t("確認中", "Checking...")
                       : maintenanceStatus?.clawhub.installed
                       ? (maintenanceStatus?.clawhub.version ?? "installed")
-                      : t("未インストール", "Not installed")}
+                      : t("未検出", "Not detected")}
                   </td>
                   <td className="action-cell">
                     <button
                       type="button"
                       className="table-action-btn action-edit"
                       disabled={maintenanceBusy}
-                      onClick={() => onRunMaintenanceCommand("install_clawhub")}
+                      onClick={() => onRunMaintenanceCommand("check_clawhub_update")}
                     >
-                      {t("インストール/更新", "Install/Update")}
+                      {maintenanceBusyCommand === "check_clawhub_update"
+                        ? (
+                          <BusyIndicator label={t("確認中", "Checking")} />
+                        )
+                        : t("更新確認", "Check Update")}
                     </button>
                   </td>
                 </tr>
               </tbody>
             </table>
-            <p className="rule-note"><code>npm install -g openclaw@latest</code> / <code>npm install -g clawhub@latest</code></p>
+            <p className="rule-note"><code>npm view openclaw version</code> / <code>npm view clawhub version</code></p>
             <div className="modal-actions">
               <button
                 type="button"

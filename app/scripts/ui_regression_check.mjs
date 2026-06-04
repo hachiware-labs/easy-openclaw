@@ -8,7 +8,7 @@ const appTsx = fs.readFileSync(path.join(root, 'src', 'App.tsx'), 'utf8');
 const appCss = fs.readFileSync(path.join(root, 'src', 'App.css'), 'utf8');
 
 const requiredAppTokens = [
-  'EasyClaw',
+  'easy-openclaw',
   'Setup',
   'Run',
   'Diagnostics',
@@ -18,7 +18,9 @@ const requiredAppTokens = [
   'Update Model',
   'Save Channel',
   'Add Agent',
-  'Changes in this dialog are auto-applied to draft state.',
+  'Save Agent writes to draft state. Run Apply to write files.',
+  'External chat integration is optional.',
+  'OpenClaw runtime server settings.',
   'Security',
   'Apply Config',
   'Start',

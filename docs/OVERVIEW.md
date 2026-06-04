@@ -7,11 +7,13 @@
 ## 現在地（必ず更新）
 - 現在フェーズ: P1
 - 今回スコープ（1〜5行）:
-  - EasyClaw の Tauri + Rust 実装（Setup/Run/Diagnostics のMVP）
+  - easy-openclaw の Tauri + Rust 実装（Setup/Run/Diagnostics のMVP）
   - LMStudio + Slack を使った実物疎通確認
   - npm グローバル配布導線の実機検証（同梱バイナリ直接起動）
+  - OpenClaw / Clawhub の依存同梱と更新確認導線
   - OpenAI OAuth 導線の安定化（対話自動化、Apply連携、ウィンドウ残留抑制）
   - 設定保存方式の統一（編集はドラフト保持、Apply時のみファイル保存）
+  - 設定画面の項目説明と選択値ヒントの改善
 - 非ゴール（やらないこと）:
   - 高度な複数エージェント同一チャネルルーティング
   - スキル管理UIや承認監査UIの詳細設計

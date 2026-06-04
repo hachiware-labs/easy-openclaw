@@ -8,12 +8,12 @@ test('OpenClaw tone snapshot pair is captured', async ({ page }, testInfo) => {
   await page.screenshot({ path: testInfo.outputPath('openclaw-home.png'), fullPage: true });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'EasyClaw' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'easy-openclaw' })).toBeVisible();
   await page.waitForTimeout(400);
-  await page.screenshot({ path: testInfo.outputPath('easyclaw-home.png'), fullPage: true });
+  await page.screenshot({ path: testInfo.outputPath('easy-openclaw-home.png'), fullPage: true });
 });
 
-test('EasyClaw theme tokens follow OpenClaw palette', async ({ page }) => {
+test('easy-openclaw theme tokens follow OpenClaw palette', async ({ page }) => {
   await page.goto('/');
 
   const tokens = await page.evaluate(() => {

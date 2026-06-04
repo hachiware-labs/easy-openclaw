@@ -33,13 +33,13 @@ PATH="$NODE22_DIR:$PATH"
 
 OPENCLAW_STATE_DIR="${OPENCLAW_STATE_DIR:-$PROJECT_ROOT/.openclaw-state}"
 OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_STATE_DIR/openclaw.json}"
-OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-easyclaw-test-token}"
+OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-easy-openclaw-test-token}"
 export OPENCLAW_STATE_DIR OPENCLAW_CONFIG_PATH OPENCLAW_GATEWAY_TOKEN
 mkdir -p "$OPENCLAW_STATE_DIR"
 
 echo "[E2E] node: $(node --version)"
 
-LM_STATUS="$(curl -sS -m 8 -w '%{http_code}' -o /tmp/easyclaw-lmstudio.json "$LMSTUDIO_BASE_URL/models")"
+LM_STATUS="$(curl -sS -m 8 -w '%{http_code}' -o /tmp/easy-openclaw-lmstudio.json "$LMSTUDIO_BASE_URL/models")"
 [[ "$LM_STATUS" == "200" ]] || fail "LMStudio HTTP status $LM_STATUS"
 echo "[E2E] LMStudio: ok"
 
@@ -47,11 +47,11 @@ SLACK_READ_OK="$(curl -sS -m 10 -H "Authorization: Bearer $SLACK_BOT_USER_OAUTH_
 [[ "$SLACK_READ_OK" == '"ok":true' ]] || fail "Slack read failed"
 echo "[E2E] Slack read: ok"
 
-SLACK_WRITE_OK="$(curl -sS -m 10 -X POST -H "Authorization: Bearer $SLACK_BOT_USER_OAUTH_TOKEN" -H "Content-type: application/json; charset=utf-8" --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"text\":\"[EasyClaw] e2e smoke test\"}" https://slack.com/api/chat.postMessage | rg -o '"ok":(true|false)' | head -n1 || true)"
+SLACK_WRITE_OK="$(curl -sS -m 10 -X POST -H "Authorization: Bearer $SLACK_BOT_USER_OAUTH_TOKEN" -H "Content-type: application/json; charset=utf-8" --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"text\":\"[easy-openclaw] e2e smoke test\"}" https://slack.com/api/chat.postMessage | rg -o '"ok":(true|false)' | head -n1 || true)"
 [[ "$SLACK_WRITE_OK" == '"ok":true' ]] || fail "Slack write failed"
 echo "[E2E] Slack write: ok"
 
-LOG_FILE="/tmp/easyclaw-e2e-gateway.log"
+LOG_FILE="/tmp/easy-openclaw-e2e-gateway.log"
 "$OPENCLAW_GATEWAY_BIN" gateway --allow-unconfigured > "$LOG_FILE" 2>&1 &
 GPID=$!
 trap 'kill "$GPID" >/dev/null 2>&1 || true; wait "$GPID" >/dev/null 2>&1 || true' EXIT

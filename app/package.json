@@ -3,7 +3,7 @@
   "private": false,
   "version": "0.0.1",
   "type": "module",
-  "description": "EasyClaw bootstrap app for OpenClaw",
+  "description": "easy-openclaw bootstrap app for OpenClaw",
   "os": [
     "darwin",
     "win32"
@@ -12,13 +12,18 @@
     "x64"
   ],
   "files": [
-    "bin/easyclaw.js",
-    "bin/native/darwin-x64/EasyClaw.app",
-    "bin/native/win32-x64/easyclaw.exe",
-    "README.md"
+    "bin/easy-openclaw.js",
+    "bin/native/darwin-x64/easy-openclaw.app",
+    "bin/native/win32-x64/easy-openclaw.exe",
+    "README.md",
+    "README_ja.md"
   ],
   "bin": {
-    "easyclaw": "bin/easyclaw.js"
+    "easy-openclaw": "bin/easy-openclaw.js"
+  },
+  "dependencies": {
+    "clawhub": "^0.18.0",
+    "openclaw": "^2026.6.1"
   },
   "scripts": {
     "dev": "vite --port 1420",
@@ -28,7 +33,7 @@
     "test:ui": "node ./scripts/ui_regression_check.mjs",
     "test:rust": "cd src-tauri && cargo test",
     "test:e2e": "node ./scripts/e2e_smoke.mjs",
-    "doctor": "node ./bin/easyclaw.js --doctor",
+    "doctor": "node ./bin/easy-openclaw.js --doctor",
     "test:gui-e2e": "PLAYWRIGHT_BROWSERS_PATH=../.pw-browsers playwright test",
     "build:native:darwin-x64": "sh ./scripts/build_native_darwin_x64.sh",
     "build:native:darwin-arm64": "sh ./scripts/build_native_darwin_arm64.sh",

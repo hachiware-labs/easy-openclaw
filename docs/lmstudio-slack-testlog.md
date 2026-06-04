@@ -1,9 +1,9 @@
-# LMStudio + Slack 実物検査ログ（EasyClaw）
+# LMStudio + Slack 実物検査ログ（easy-openclaw）
 
 ## 1. 実施情報
 - 実施日: 2026-02-14
 - 実施者:
-- EasyClaw バージョン:
+- easy-openclaw バージョン:
 - OS:
 
 ## 2. 事前環境
@@ -47,14 +47,14 @@
 - 差分観測:
 
 ### IT-0006 グローバル配布起動（同梱バイナリ）
-- 手順: `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz` 後、`easyclaw --version` / `easyclaw --doctor` / `easyclaw` 起動を確認
+- 手順: `cd app && npm pack && npm install -g ./easy-openclaw-0.0.1.tgz` 後、`easy-openclaw --version` / `easy-openclaw --doctor` / `easy-openclaw` 起動を確認
 - 結果: OK
-- 補足: `easyclaw` 起動時に `bin/native/darwin-x64/easyclaw` が子プロセスとして実行され、`tauri dev` や追加コンパイルは発生しないことを確認
+- 補足: `easy-openclaw` 起動時に `bin/native/darwin-x64/easy-openclaw` が子プロセスとして実行され、`tauri dev` や追加コンパイルは発生しないことを確認
 
 ### デザイン比較E2E（OpenClawトンマナ）
-- 手順: `cd app && npm run test:brand-e2e` を実行し、OpenClaw公式サイトと EasyClaw のスクリーンショットを保存
+- 手順: `cd app && npm run test:brand-e2e` を実行し、OpenClaw公式サイトと easy-openclaw のスクリーンショットを保存
 - 結果: OK
-- 補足: 出力先は `app/test-results/brand.e2e-OpenClaw-tone-snapshot-pair-is-captured/openclaw-home.png` と `app/test-results/brand.e2e-OpenClaw-tone-snapshot-pair-is-captured/easyclaw-home.png`
+- 補足: 出力先は `app/test-results/brand.e2e-OpenClaw-tone-snapshot-pair-is-captured/openclaw-home.png` と `app/test-results/brand.e2e-OpenClaw-tone-snapshot-pair-is-captured/easy-openclaw-home.png`
 
 ## 4. エラー記録
 - ERR-ID:

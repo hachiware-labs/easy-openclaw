@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
 	<key>CFBundleDisplayName</key>
-	<string>EasyClaw</string>
+	<string>easy-openclaw</string>
 	<key>CFBundleExecutable</key>
-	<string>easyclaw</string>
+	<string>easy-openclaw</string>
 	<key>CFBundleIconFile</key>
 	<string>icon.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.easyclaw.app</string>
+	<string>com.hachiwarelabs.easy-openclaw</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>EasyClaw</string>
+	<string>easy-openclaw</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

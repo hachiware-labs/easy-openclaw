@@ -1,6 +1,6 @@
 # concept.md（必ず書く：最新版）
 #1.概要（Overview）（先頭固定）
-- 作るもの（What）：OpenClaw の初期設定を最小UIで完了できる Rust 製ブートストラップアプリ `EasyClaw`
+- 作るもの（What）：OpenClaw の初期設定を最小UIで完了できる Rust 製ブートストラップアプリ `easy-openclaw`
 - 解決すること（Why）：OpenClaw 設定の複雑さ（設定層の分散、TCCの理解負担、複数エージェント/チャネル割当の煩雑さ）を減らす
 - できること（主要機能の要約）：Provider/Channel/Agent の設定、OpenClaw向け設定出力、gateway 起動停止、TCC比較実験
 - 使いどころ（When/Where）：macOS 上で OpenClaw を新規導入または再構成する運用時
@@ -42,8 +42,8 @@
 #6.ユースケース（Use Cases）
 | ID | 主体 | 目的 | 前提 | 主要手順（最小操作） | 成功条件 | 例外/制約 |
 |---|---|---|---|---|---|---|
-| UC-1 | 利用者 | 利用するモデル接続先を登録する | EasyClaw 起動済み | Provider種別を選ぶ→base_url/API key等を入力→保存 | Providerが一覧に追加される | 疎通失敗時は保存前に警告表示 |
-| UC-2 | 利用者 | 利用するチャネルを登録する | EasyClaw 起動済み | チャネル種別を選ぶ→token等を入力→疎通確認→保存 | Channelが一覧に追加される | 入力不足時は保存不可 |
+| UC-1 | 利用者 | 利用するモデル接続先を登録する | easy-openclaw 起動済み | Provider種別を選ぶ→base_url/API key等を入力→保存 | Providerが一覧に追加される | 疎通失敗時は保存前に警告表示 |
+| UC-2 | 利用者 | 利用するチャネルを登録する | easy-openclaw 起動済み | チャネル種別を選ぶ→token等を入力→疎通確認→保存 | Channelが一覧に追加される | 入力不足時は保存不可 |
 | UC-3 | 利用者 | エージェントを作成しProvider/Channelを割り当てる | Provider/Channelが1件以上存在 | Agent作成→Provider/Model選択→Channel割当→保存 | Agent設定が保存される | 1チャネルに複数Agentは不可 |
 | UC-4 | 利用者 | OpenClawが読める設定を生成する | Agent設定が1件以上存在 | Apply実行→生成結果を確認 | `openclaw.json` と `.env` が生成される | 生成時はatomic writeで安全に保存 |
 | UC-5 | 利用者 | gatewayを起動して状態を確認する | 設定生成済み | RunタブでStart→Health確認→必要に応じDashboardを開く→Stop | 起動状態が可視化される | 起動失敗時はログで原因確認 |
@@ -51,7 +51,7 @@
 
 #7.Goals（Goalのみ／ユースケース紐づけ必須）
 - G-1: OpenClaw初期設定を短時間で完了できる（対応：UC-1, UC-2, UC-3, UC-4）
-- G-2: gateway運用確認をEasyClaw内で完結できる（対応：UC-5）
+- G-2: gateway運用確認をeasy-openclaw内で完結できる（対応：UC-5）
 - G-3: TCC挙動差分を再現可能な形で記録できる（対応：UC-6）
 
 #8.基本レイヤー構造（Layering）
@@ -82,10 +82,10 @@
 7. npmグローバル導入フローを整備し、初回セットアップ導線を検証する
 
 #11.用語集（Glossary）
-- EasyClaw: OpenClaw設定を簡単化する Rust 製ブートストラップアプリ
+- easy-openclaw: OpenClaw設定を簡単化する Rust 製ブートストラップアプリ
 - Provider: モデル接続先（OpenAI系/OpenAI互換/Ollama/LMStudio）
 - Channel: 外部チャット連携（Slack/Discord/Telegram）
 - Agent: Provider/Model/Channelを束ねる実行単位
-- Mode A: EasyClaw が親プロセスとして gateway を子起動する方式
+- Mode A: easy-openclaw が親プロセスとして gateway を子起動する方式
 - Mode B: 外部起動済み gateway に接続する方式
 - TCC: macOSプライバシー許可管理（設定ファイルとは独立）

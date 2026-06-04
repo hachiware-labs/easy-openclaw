@@ -1,6 +1,6 @@
 # architecture.md（必ず書く：最新版）
 #1.アーキテクチャ概要（構成要素と責務）
-- EasyClaw は `Tauri + Rust` を中核としたデスクトップGUIアプリとして構成する。
+- easy-openclaw は `Tauri + Rust` を中核としたデスクトップGUIアプリとして構成する。
 - フロントエンド（Tauri WebView）は Setup/Run/Diagnostics のUI状態を管理する。
 - バックエンド（Rust Core）はユースケース実行、ドメイン制約判定、外部I/Oを担う。
 - 設定出力はユーザーのメンタルモデル入力を `openclaw.json` strict schema へ変換して保存する。
@@ -195,7 +195,7 @@
 #6.設定：場所／キー／既定値
 | 項目 | 場所 | キー | 既定値 |
 |---|---|---|---|
-| 設定出力先 | App設定 | `output.target_dir` | `$HOME/.easyclaw/output` |
+| 設定出力先 | App設定 | `output.target_dir` | `$HOME/.easy-openclaw/output` |
 | 実行モード | App設定 | `run.mode` | `A` |
 | Dashboard自動オープン | App設定 | `run.dashboard_auto_open` | `true` |
 | ヘルス判定秒数 | App設定 | `run.health_timeout_sec` | `30` |
@@ -252,7 +252,7 @@ AgentBindingService -> AgentRepository + BindingRepository + ModelCatalogReposit
 #10.観測性（ログ/診断：doctor/status/debug）
 | 種別 | 内容 | 出力先 |
 |---|---|---|
-| app log | ユースケース開始/完了、ERR-ID、相関ID | `logs/easyclaw.log` |
+| app log | ユースケース開始/完了、ERR-ID、相関ID | `logs/easy-openclaw.log` |
 | gateway log | stdout/stderr tail | Runタブ + `logs/gateway.log` |
 | health status | 起動モード、ready判定時刻、失敗理由 | Runタブ |
 | diagnostics | TCC実験ケース、結果、観測メモ | Diagnosticsタブ + `data/experiments.jsonl` |
@@ -282,6 +282,8 @@ AgentBindingService -> AgentRepository + BindingRepository + ModelCatalogReposit
 #12.配布・実行形態（インストール/更新/互換性/破壊的変更）
 - 配布は npm パッケージ経由（`npm install -g easy-openclaw`）で行う。
 - npmパッケージにはOS別Rustビルド成果物を含め、インストール時に実行可能ファイルを配置する。
+- OpenClaw / Clawhub は `easy-openclaw` の npm 依存として導入し、ランチャーが `EASY_OPENCLAW_ROOT` を渡すことで同梱 `node_modules/.bin` のCLIを優先して解決する。
+- 保守UIは OpenClaw / Clawhub の個別インストールを実行せず、npm registry の最新版確認のみを行う。更新は `easy-openclaw` の再インストールで反映する。
 - 更新は npm の semver に従い、破壊的変更は major 更新でのみ提供する。
 - 既存設定との互換性は「OpenClawが受理できる形式」を優先し、差分は `ConfigVerifier` で検知する。
 - 破壊的変更時は起動時に移行ガイドを表示し、旧設定バックアップを必須化する。
@@ -289,9 +291,9 @@ AgentBindingService -> AgentRepository + BindingRepository + ModelCatalogReposit
 #13.CLI：コマンド体系／引数／出力／exit code
 - 基本方針: GUIアプリが主であり、CLIは起動補助に限定する。
 - コマンド体系:
-  - `easyclaw` : GUIを起動する
-  - `easyclaw --version` : バージョン表示
-  - `easyclaw --doctor` : 事前診断（設定・権限・接続先）
+  - `easy-openclaw` : GUIを起動する
+  - `easy-openclaw --version` : バージョン表示
+  - `easy-openclaw --doctor` : 事前診断（設定・権限・接続先）
 - 引数:
   - `--mode <A|B>`（任意）: 初期Runモード
   - `--config-dir <path>`（任意）: 設定保存先上書き

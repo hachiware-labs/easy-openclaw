@@ -83,7 +83,7 @@ async function main() {
   const stateDir = process.env.OPENCLAW_STATE_DIR?.trim() || path.join(projectRoot, ".openclaw-state");
   const configPath =
     process.env.OPENCLAW_CONFIG_PATH?.trim() || path.join(stateDir, "openclaw.json");
-  const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN?.trim() || "easyclaw-test-token";
+  const gatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN?.trim() || "easy-openclaw-test-token";
   process.env.OPENCLAW_STATE_DIR = stateDir;
   process.env.OPENCLAW_CONFIG_PATH = configPath;
   process.env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
@@ -120,7 +120,7 @@ async function main() {
     },
     body: JSON.stringify({
       channel: process.env.SLACK_CHANNEL_ID,
-      text: "[EasyClaw] e2e smoke test",
+      text: "[easy-openclaw] e2e smoke test",
     }),
   });
   const slackWrite = await slackWriteResponse.json().catch(() => ({}));
@@ -129,7 +129,7 @@ async function main() {
   }
   console.log("[E2E] Slack write: ok");
 
-  const logPath = path.join(os.tmpdir(), "easyclaw-e2e-gateway.log");
+  const logPath = path.join(os.tmpdir(), "easy-openclaw-e2e-gateway.log");
   const outFd = fs.openSync(logPath, "a");
   const gateway = spawn(openclawBin, ["gateway", "--allow-unconfigured"], {
     env: process.env,
