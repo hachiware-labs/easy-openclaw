@@ -4283,7 +4283,7 @@ async fn start_gateway(
         ));
     }
 
-    push_log(&state, "info", "gateway started");
+    push_log(&state, "info", format!("gateway started: {}", run.dashboard_url));
     Ok(run_status_from(&run, &gateway_cfg))
 }
 

@@ -748,8 +748,12 @@ function App() {
     setLogs(value);
   }
 
+  function isGatewayStartedLog(line: LogLine): boolean {
+    return line.message.toLowerCase().includes("gateway started");
+  }
+
   function countGatewayStartedLogs(value: LogLine[]): number {
-    return value.filter((line) => line.message.toLowerCase().includes("gateway started")).length;
+    return value.filter(isGatewayStartedLog).length;
   }
 
   async function waitForGatewayStartedLog(previousCount: number, timeoutMs = 10000): Promise<boolean> {
@@ -757,7 +761,8 @@ function App() {
     while (Date.now() - startedAt < timeoutMs) {
       const value = await invoke<LogLine[]>("get_logs");
       setLogs(value);
-      if (countGatewayStartedLogs(value) > previousCount) {
+      const startedCount = countGatewayStartedLogs(value);
+      if (startedCount > previousCount || startedCount > 0) {
         return true;
       }
       await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -1467,16 +1472,31 @@ function App() {
       });
       const snap = await refresh();
       const startupLogConfirmed = await waitForGatewayStartedLog(previousStartedLogs);
+      const dashboardUrl = dashboardUrlWithTokenFor(started.dashboard_url, snap.gateway);
       if (!startupLogConfirmed) {
-        setNotice(t("gatewayを起動しました。起動完了ログを確認できたらDashboardを開いてください。", "Gateway started. Open the Dashboard after the startup-complete log appears."));
+        setNotice(
+          t(
+            `gatewayを起動しましたが、起動完了ログを確認できませんでした。Dashboard URL: ${dashboardUrl}`,
+            `Gateway started, but the startup-complete log was not confirmed. Dashboard URL: ${dashboardUrl}`,
+          ),
+        );
         return;
       }
-      const dashboardUrl = dashboardUrlWithTokenFor(started.dashboard_url, snap.gateway);
       try {
         await openUrl(dashboardUrl);
-        setNotice(t("起動完了ログを確認しました。Dashboardを開きました。", "Startup-complete log confirmed. Dashboard opened."));
+        setNotice(
+          t(
+            `起動完了ログを確認しました。Dashboardを開きました: ${dashboardUrl}`,
+            `Startup-complete log confirmed. Dashboard opened: ${dashboardUrl}`,
+          ),
+        );
       } catch (openError) {
-        setNotice(t("起動完了ログを確認しました。Dashboard URLはRun画面から開けます。", "Startup-complete log confirmed. You can open the Dashboard URL from Run."));
+        setNotice(
+          t(
+            `起動完了ログを確認しましたが、ブラウザで開けませんでした。Dashboard URL: ${dashboardUrl}`,
+            `Startup-complete log confirmed, but the browser did not open. Dashboard URL: ${dashboardUrl}`,
+          ),
+        );
         handleCommandError(openError);
       }
     } catch (e) {

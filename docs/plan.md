@@ -66,3 +66,4 @@
 - [x] easy-openclaw終了時にOpenClaw gateway停止確認を出し、停止選択時は終了前に停止するようにした
 - [x] Apply完了後にRun/Startへ誘導し、Start成功時にDashboard URLを自動でブラウザ表示するようにした
 - [x] Apply完了後はタブ移動せずStart案内のみ表示し、Dashboard自動表示は起動完了ログ確認後に行うよう調整した
+- [x] Dashboard自動表示の起動完了ログ判定を安定化し、ログと通知にDashboard URLを表示するようにした
