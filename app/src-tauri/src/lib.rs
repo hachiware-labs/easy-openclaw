@@ -1833,15 +1833,19 @@ fn validate_gateway_config(input: &SetGatewayConfigInput) -> Result<GatewaySetti
                     "Gateway auth mode は token/password のいずれかを指定してください。",
                 ));
             }
-            if auth_mode == "token" && normalize_optional_text(input.auth_token.clone()).is_none() {
-                return Err(err("ERR-ECLAW-0022", "Gateway token を入力してください。"));
-            }
+            let auth_token = normalize_optional_text(input.auth_token.clone()).or_else(|| {
+                if auth_mode == "token" {
+                    Some(gen_id("gateway-token"))
+                } else {
+                    None
+                }
+            });
             Ok(GatewaySettings {
                 mode: GatewayMode::Local,
                 port: input.port.or(Some(18789)),
                 bind: Some(bind),
                 auth_mode: Some(auth_mode),
-                auth_token: normalize_optional_text(input.auth_token.clone()),
+                auth_token,
                 remote_url: None,
                 remote_token: None,
                 tailscale_mode: normalize_optional_text(input.tailscale_mode.clone())
@@ -4504,6 +4508,28 @@ mod tests {
         assert!(health_ok(StatusCode::OK));
         assert!(health_ok(StatusCode::NO_CONTENT));
         assert!(!health_ok(StatusCode::BAD_REQUEST));
+    }
+
+    #[test]
+    fn gateway_token_is_auto_generated_when_left_blank() {
+        let gateway = validate_gateway_config(&SetGatewayConfigInput {
+            mode: GatewayMode::Local,
+            port: Some(18789),
+            bind: Some("loopback".into()),
+            auth_mode: Some("token".into()),
+            auth_token: None,
+            remote_url: None,
+            remote_token: None,
+            tailscale_mode: Some("off".into()),
+        })
+        .expect("blank local token should be generated");
+
+        assert_eq!(gateway.auth_mode.as_deref(), Some("token"));
+        assert!(gateway
+            .auth_token
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("gateway-token-"));
     }
 
     #[test]

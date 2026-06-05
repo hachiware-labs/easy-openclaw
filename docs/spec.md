@@ -133,6 +133,10 @@ Done：用語、情報配置、状態表示トーンがOpenClaw運用画面と�
 - Setup は部品管理UIを維持し、Models / Channels / Agents / Gateway / Apply の各項目に短い説明を表示する。
 - セレクト項目は、選択中の値が何を意味するかを同じ画面内に表示する。
 - Channel は任意、Gateway詳細は通常変更不要であることを画面文言で明示する。
+- Setup は現在地サマリーと次アクションを表示し、ウィザード化せずに一本道の進行状態を把握できるようにする。
+- Gateway の詳細項目と Apply の保存先詳細は通常表示では主情報にせず、必要時だけ開ける。
+- Gateway token は初回セットアップで利用者の必須入力にせず、local/token で空欄の場合は Apply 時に自動生成する。
+- Dashboard 操作は通常の Open Dashboard を主導線とし、URL確認は補助操作として提供する。
 
 #### エラー分岐（REQ-0008の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |

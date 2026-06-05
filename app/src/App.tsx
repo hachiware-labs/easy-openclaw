@@ -478,6 +478,8 @@ function App() {
 
   const [runMode, setRunMode] = useState<RunMode>("a");
   const [runStopping, setRunStopping] = useState(false);
+  const [configAppliedAt, setConfigAppliedAt] = useState<string | null>(null);
+  const [gatewayDetailsOpen, setGatewayDetailsOpen] = useState(false);
   const [resolvedConfigPath, setResolvedConfigPath] = useState("");
   const [resolvedEnvPath, setResolvedEnvPath] = useState("");
   const [resolvedApprovalsPath, setResolvedApprovalsPath] = useState("");
@@ -601,7 +603,7 @@ function App() {
   function gatewayAuthModeHelp(mode: string): string {
     return mode === "password"
       ? t("Dashboard等のアクセスにパスワード形式の認証値を使います。", "Uses a password-style secret for Dashboard and gateway access.")
-      : t("Dashboard等のアクセスにトークン形式の認証値を使います。標準はこちらです。", "Uses a token-style secret for Dashboard and gateway access. This is the default.");
+      : t("Dashboard等のアクセスにトークン形式の認証値を使います。空欄ならApply時に自動生成します。", "Uses a token-style secret for Dashboard and gateway access. Leave empty to auto-generate it on Apply.");
   }
 
   function tailscaleModeHelp(mode: string): string {
@@ -619,6 +621,38 @@ function App() {
     return mode === "b"
       ? t("すでに別の方法でgatewayを起動している場合に、その状態を確認します。", "Use this when the gateway was already started another way.")
       : t("easy-openclawがgatewayを起動・停止します。通常はこちらです。", "easy-openclaw starts and stops the gateway. This is the normal mode.");
+  }
+
+  function markConfigDirty() {
+    setConfigAppliedAt(null);
+  }
+
+  function setupNextAction(): string {
+    if (snapshot.models.length === 0) {
+      return t("まず Model Provider を1つ追加してください。", "Add one Model Provider first.");
+    }
+    if (snapshot.agents.length === 0) {
+      return t("次は Agent を追加し、使うModelとWorkspaceを選びます。", "Next, add an Agent and choose its model and workspace.");
+    }
+    if (!configAppliedAt) {
+      return t("次は Apply Config でOpenClaw設定を書き出します。", "Next, use Apply Config to write the OpenClaw files.");
+    }
+    if (snapshot.run_status.health !== "ready") {
+      return t("次は Run で Start し、GatewayとDashboardを確認します。", "Next, open Run and press Start to check the Gateway and Dashboard.");
+    }
+    return t("Gatewayはreadyです。Dashboardで動作確認できます。", "Gateway is ready. You can verify from the Dashboard.");
+  }
+
+  function statusLabel(done: boolean, next = false): string {
+    if (done) return t("完了", "Done");
+    if (next) return t("次", "Next");
+    return t("未完了", "Pending");
+  }
+
+  function statusClass(done: boolean, next = false): string {
+    if (done) return "done";
+    if (next) return "next";
+    return "pending";
   }
 
   useEffect(() => {
@@ -897,6 +931,7 @@ function App() {
         await invoke<OpenAiOauthLoginResult>("run_openai_oauth_onboard_auto");
       }
       await refresh();
+      markConfigDirty();
       setNotice(
         editingModelId
           ? t("モデルを更新しました。", "Model updated.")
@@ -932,6 +967,7 @@ function App() {
     try {
       await invoke("delete_model", { modelId: id });
       await refresh();
+      markConfigDirty();
       setNotice(t("モデルを削除しました。", "Model deleted."));
       if (editingModelId === id) {
         setEditingModelId(null);
@@ -1093,6 +1129,7 @@ function App() {
         await invoke("create_channel", { input });
       }
       await refresh();
+      markConfigDirty();
       setNotice(editingChannelId ? t("Channelを更新しました。", "Channel updated.") : t("Channelを保存しました。", "Channel saved."));
       setShowChannelForm(false);
       setEditingChannelId(null);
@@ -1118,6 +1155,7 @@ function App() {
     try {
       await invoke("delete_channel", { channelId: id });
       await refresh();
+      markConfigDirty();
       setNotice(t("Channelを削除しました。", "Channel deleted."));
       if (editingChannelId === id) {
         setEditingChannelId(null);
@@ -1335,6 +1373,7 @@ function App() {
         setAgentId(saved.id);
       }
       await refresh();
+      markConfigDirty();
       setNotice(editingAgentId ? t("Agentを更新しました。", "Agent updated.") : t("Agentを保存しました。", "Agent saved."));
       setShowAgentForm(false);
       setEditingAgentId(null);
@@ -1354,6 +1393,7 @@ function App() {
     try {
       await invoke("delete_agent", { agentId: id });
       await refresh();
+      markConfigDirty();
       setNotice(t("Agentを削除しました。", "Agent deleted."));
       if (editingAgentId === id) {
         setEditingAgentId(null);
@@ -1441,16 +1481,17 @@ function App() {
           node: null,
         },
       });
-      const result = await invoke<{ config_path: string; env_path: string; approvals_path: string }>("apply_config", {
+      await invoke<{ config_path: string; env_path: string; approvals_path: string }>("apply_config", {
         input: { target_dir: null },
       });
       setGatewayInitialized(false);
+      setConfigAppliedAt(new Date().toLocaleString());
       await refresh();
       await refreshResolvedPaths();
       setNotice(
         t(
-          `設定を出力しました: ${result.config_path} / ${result.approvals_path}。次はRunタブでStartしてください。`,
-          `Configuration exported: ${result.config_path} / ${result.approvals_path}. Next, open Run and press Start.`,
+          "設定を適用しました。次はRunタブでStartしてください。",
+          "Configuration applied. Next, open Run and press Start.",
         ),
       );
     } catch (e) {
@@ -1522,7 +1563,8 @@ function App() {
   async function onOpenDashboard() {
     setError("");
     try {
-      await openUrl(snapshot.run_status.dashboard_url);
+      await openUrl(dashboardUrlWithToken());
+      setNotice(t(`Dashboardを開きました: ${dashboardUrlWithToken()}`, `Dashboard opened: ${dashboardUrlWithToken()}`));
     } catch (e) {
       handleCommandError(e);
     }
@@ -1548,12 +1590,14 @@ function App() {
     return dashboardUrlWithTokenFor(snapshot.run_status.dashboard_url, snapshot.gateway);
   }
 
-  async function onOpenDashboardWithToken() {
+  async function onCopyDashboardUrl() {
     setError("");
+    const url = dashboardUrlWithToken();
     try {
-      await openUrl(dashboardUrlWithToken());
+      await navigator.clipboard.writeText(url);
+      setNotice(t(`Dashboard URLをコピーしました: ${url}`, `Dashboard URL copied: ${url}`));
     } catch (e) {
-      handleCommandError(e);
+      setNotice(t(`Dashboard URL: ${url}`, `Dashboard URL: ${url}`));
     }
   }
 
@@ -1646,13 +1690,54 @@ function App() {
 
       {activeTab === "setup" && (
         <section className="tab-panel">
+          <article className="panel setup-status-panel">
+            <div className="panel-head">
+              <h2>{t("セットアップの現在地", "Setup Status")}</h2>
+              <p className="next-action">{setupNextAction()}</p>
+            </div>
+            <div className="setup-status-strip" aria-label={t("セットアップ状態", "Setup status")}>
+              <div className={`setup-status-item ${statusClass(snapshot.models.length > 0, snapshot.models.length === 0)}`}>
+                <span>Model Provider</span>
+                <strong>{statusLabel(snapshot.models.length > 0, snapshot.models.length === 0)}</strong>
+                <small>{snapshot.models.length > 0 ? t(`${snapshot.models.length}件`, `${snapshot.models.length} configured`) : t("最初に追加", "Add first")}</small>
+              </div>
+              <div className={`setup-status-item ${statusClass(snapshot.agents.length > 0, snapshot.models.length > 0 && snapshot.agents.length === 0)}`}>
+                <span>Agent</span>
+                <strong>{statusLabel(snapshot.agents.length > 0, snapshot.models.length > 0 && snapshot.agents.length === 0)}</strong>
+                <small>{snapshot.agents.length > 0 ? t(`${snapshot.agents.length}件`, `${snapshot.agents.length} configured`) : t("Model追加後", "After model")}</small>
+              </div>
+              <div className={`setup-status-item ${statusClass(snapshot.channels.length > 0)}`}>
+                <span>Channel</span>
+                <strong>{snapshot.channels.length > 0 ? t("任意設定済み", "Optional done") : t("任意", "Optional")}</strong>
+                <small>{snapshot.channels.length > 0 ? t(`${snapshot.channels.length}件`, `${snapshot.channels.length} configured`) : t("後から追加可", "Can add later")}</small>
+              </div>
+              <div className={`setup-status-item ${statusClass(!!configAppliedAt, snapshot.models.length > 0 && snapshot.agents.length > 0 && !configAppliedAt)}`}>
+                <span>Apply Config</span>
+                <strong>{statusLabel(!!configAppliedAt, snapshot.models.length > 0 && snapshot.agents.length > 0 && !configAppliedAt)}</strong>
+                <small>{configAppliedAt ?? t("未適用", "Not applied")}</small>
+              </div>
+              <div className={`setup-status-item ${statusClass(snapshot.run_status.health === "ready", !!configAppliedAt && snapshot.run_status.health !== "ready")}`}>
+                <span>Gateway</span>
+                <strong>{snapshot.run_status.health === "ready" ? "ready" : statusLabel(false, !!configAppliedAt)}</strong>
+                <small>{snapshot.run_status.health}</small>
+              </div>
+            </div>
+          </article>
+
           <article className="panel">
             <div className="panel-head">
-              <h2>Models</h2>
+              <h2>{t("モデルプロバイダー", "Model Providers")}</h2>
               <button type="button" onClick={onOpenCreateModel} disabled={isModelEditing}>{t("モデルを追加", "Add Model")}</button>
             </div>
             <p className="panel-subtitle">
               {t("AIの接続先です。まず1つ登録すると、Agent作成で選べるようになります。", "AI connection targets. Add at least one so agents can use it.")}
+            </p>
+            <p className="next-step-note">
+              {snapshot.models.length === 0
+                ? t("次の操作: モデルを追加します。", "Next action: add a model.")
+                : snapshot.agents.length === 0
+                  ? t("次の操作: AgentsでAgentを追加します。", "Next action: add an Agent in Agents.")
+                  : t("モデル接続先は設定済みです。必要ならProbeで疎通確認できます。", "Model provider is configured. Use Probe if you want to check connectivity.")}
             </p>
             <p className="rule-note">
               {t("Model変更はドラフトとして保持され、ファイルへの保存はApply時に行います。", "Model changes stay in draft and are written to files on Apply.")}
@@ -1688,6 +1773,11 @@ function App() {
             <p className="panel-subtitle">
               {t("Slackなど外部チャットとの接続です。チャット画面から使わない場合は未設定のままで進めます。", "External chat connections such as Slack. Leave this empty if you do not need chat integration yet.")}
             </p>
+            <p className="next-step-note">
+              {snapshot.channels.length === 0
+                ? t("次の操作: Slack連携が必要になった段階で追加します。初回のGateway確認ではスキップできます。", "Next action: add Slack only when you need chat integration. You can skip this for the first Gateway check.")
+                : t("Channelは設定済みです。Agent編集で必要なChannelを割り当てます。", "Channel is configured. Assign it from Agent editing when needed.")}
+            </p>
             {snapshot.channels.length === 0 ? (
               <p className="empty-state">{t("現在のチャンネルはありません。外部チャット連携は任意です。", "No channels configured. External chat integration is optional.")}</p>
             ) : (
@@ -1719,6 +1809,13 @@ function App() {
             <p className="panel-subtitle">
               {t("Agentは「どのモデルを、どの作業フォルダで動かすか」をまとめた実行単位です。", "An agent is the runnable unit: which model to use and which workspace it works in.")}
             </p>
+            <p className="next-step-note">
+              {snapshot.agents.length === 0
+                ? t("次の操作: Agentを追加します。ChannelはNo ChannelのままでもDashboard確認できます。", "Next action: add an Agent. You can keep Channel as No Channel for Dashboard verification.")
+                : !configAppliedAt
+                  ? t("次の操作: Apply ConfigでOpenClaw設定を書き出します。", "Next action: write OpenClaw files with Apply Config.")
+                  : t("Agentは設定済みです。次はRunでStartします。", "Agent is configured. Next, open Run and press Start.")}
+            </p>
             {snapshot.agents.length === 0 ? (
               <p className="empty-state">{t("現在のエージェントはありません。モデルを追加したら、次にAgentを作成してください。", "No agents configured. After adding a model, create an agent next.")}</p>
             ) : (
@@ -1749,10 +1846,17 @@ function App() {
             <p className="panel-subtitle">
               {t("OpenClawの実行サーバー設定です。初回は標準のLocal/loopbackのままがおすすめです。", "OpenClaw runtime server settings. For first setup, keep the standard Local/loopback values.")}
             </p>
-            <div className="form-grid">
+            <p className="gateway-summary">
+              {gatewayMode === "remote"
+                ? t(`現在: Remote ${gatewayRemoteUrl || "(未設定)"}`, `Current: Remote ${gatewayRemoteUrl || "(unset)"}`)
+                : t(`現在: Local ${gatewayBind}:${gatewayPort || "18789"}`, `Current: Local ${gatewayBind}:${gatewayPort || "18789"}`)}
+            </p>
+            <details className="gateway-details" open={gatewayDetailsOpen} onToggle={(e) => setGatewayDetailsOpen(e.currentTarget.open)}>
+              <summary>{gatewayDetailsOpen ? t("Gateway詳細設定を閉じる", "Close Gateway advanced settings") : t("Gateway詳細設定を開く", "Open Gateway advanced settings")}</summary>
+            <div className="form-grid gateway-details-grid">
               <label>
                 Gateway Mode
-                <select className="form-select" value={gatewayMode} onChange={(e) => setGatewayMode(e.target.value as GatewayMode)}>
+                <select className="form-select" value={gatewayMode} onChange={(e) => { setGatewayMode(e.target.value as GatewayMode); markConfigDirty(); }}>
                   <option value="local">{t("Local (この端末で起動)", "Local (run on this device)")}</option>
                   <option value="remote">{t("Remote/VPS (外部gatewayへ接続)", "Remote/VPS (connect to external gateway)")}</option>
                 </select>
@@ -1762,7 +1866,7 @@ function App() {
                 <>
                   <label>
                     Bind
-                    <select className="form-select" value={gatewayBind} onChange={(e) => setGatewayBind(e.target.value)}>
+                    <select className="form-select" value={gatewayBind} onChange={(e) => { setGatewayBind(e.target.value); markConfigDirty(); }}>
                       <option value="loopback">loopback</option>
                       <option value="lan">lan</option>
                       <option value="tailnet">tailnet</option>
@@ -1773,13 +1877,13 @@ function App() {
                   </label>
                   <label>
                     Port
-                    <input className="form-control" type="number" min={1} max={65535} value={gatewayPort} onChange={(e) => setGatewayPort(e.target.value)} />
+                    <input className="form-control" type="number" min={1} max={65535} value={gatewayPort} onChange={(e) => { setGatewayPort(e.target.value); markConfigDirty(); }} />
                     <span className="field-help">{t("gatewayが待ち受ける番号です。競合がなければ標準値のままで構いません。", "The port the gateway listens on. Keep the default unless it conflicts.")}</span>
                   </label>
                   <label className="full-row">
-                    Auth
+                    {t("Auth (任意)", "Auth (optional)")}
                     <div className="inline-row">
-                      <select className="form-select" value={gatewayAuthMode} onChange={(e) => setGatewayAuthMode(e.target.value)}>
+                      <select className="form-select" value={gatewayAuthMode} onChange={(e) => { setGatewayAuthMode(e.target.value); markConfigDirty(); }}>
                         <option value="token">token</option>
                         <option value="password">password</option>
                       </select>
@@ -1788,8 +1892,8 @@ function App() {
                           className="form-control"
                           type={showGatewayAuthToken ? "text" : "password"}
                           value={gatewayAuthToken}
-                          onChange={(e) => setGatewayAuthToken(e.target.value)}
-                          placeholder={gatewayAuthMode === "token" ? "Gateway Token" : "Gateway Password"}
+                          onChange={(e) => { setGatewayAuthToken(e.target.value); markConfigDirty(); }}
+                          placeholder={gatewayAuthMode === "token" ? t("空欄なら自動生成", "Auto-generated if empty") : "Gateway Password"}
                         />
                         <button type="button" className="toggle-visibility" onClick={() => setShowGatewayAuthToken((v) => !v)}>
                           {showGatewayAuthToken ? "Hide" : "Show"}
@@ -1800,7 +1904,7 @@ function App() {
                   </label>
                   <label>
                     Tailscale
-                    <select className="form-select" value={gatewayTailscaleMode} onChange={(e) => setGatewayTailscaleMode(e.target.value)}>
+                    <select className="form-select" value={gatewayTailscaleMode} onChange={(e) => { setGatewayTailscaleMode(e.target.value); markConfigDirty(); }}>
                       <option value="off">off</option>
                       <option value="serve">serve</option>
                       <option value="funnel">funnel</option>
@@ -1813,7 +1917,7 @@ function App() {
                 <>
                   <label className="full-row">
                     Remote URL (VPS)
-                    <input className="form-control" value={gatewayRemoteUrl} onChange={(e) => setGatewayRemoteUrl(e.target.value)} placeholder="ws://vps.example.com:18789" />
+                    <input className="form-control" value={gatewayRemoteUrl} onChange={(e) => { setGatewayRemoteUrl(e.target.value); markConfigDirty(); }} placeholder="ws://vps.example.com:18789" />
                     <span className="field-help">{t("接続先gatewayのWebSocket URLです。Remote運用時だけ必要です。", "WebSocket URL of the remote gateway. Required only for remote setups.")}</span>
                   </label>
                   <label className="full-row">
@@ -1823,7 +1927,7 @@ function App() {
                         className="form-control"
                         type={showGatewayRemoteToken ? "text" : "password"}
                         value={gatewayRemoteToken}
-                        onChange={(e) => setGatewayRemoteToken(e.target.value)}
+                        onChange={(e) => { setGatewayRemoteToken(e.target.value); markConfigDirty(); }}
                       />
                       <button type="button" className="toggle-visibility" onClick={() => setShowGatewayRemoteToken((v) => !v)}>
                         {showGatewayRemoteToken ? "Hide" : "Show"}
@@ -1834,6 +1938,7 @@ function App() {
                 </>
               )}
             </div>
+            </details>
           </article>
 
           <article className="panel">
@@ -1844,10 +1949,18 @@ function App() {
             <p className="panel-subtitle">
               {t("画面上のドラフト設定をOpenClawが読むファイルへ保存します。Runの前に実行してください。", "Writes the draft settings into files that OpenClaw reads. Run this before starting.")}
             </p>
-            <p className="path-line">{t("保存先", "Config path")}: <code>{resolvedConfigPath || "(resolving...)"}</code></p>
-            <p className="path-line">{t("環境変数", "Env file")}: <code>{resolvedEnvPath || "(resolving...)"}</code></p>
-            <p className="path-line">Exec Approvals: <code>{resolvedApprovalsPath || "(resolving...)"}</code></p>
-            <p className="rule-note">{t("決定ルール", "Resolution rule")}: `OPENCLAW_CONFIG_PATH` → `OPENCLAW_STATE_DIR/openclaw.json` → `~/.openclaw/openclaw.json`</p>
+            <p className={`apply-status ${configAppliedAt ? "done" : "pending"}`}>
+              {configAppliedAt
+                ? t(`設定は適用済みです。次はRunでStartします。`, `Configuration is applied. Next, open Run and press Start.`)
+                : t("まだ現在のドラフトはApplyされていません。", "The current draft has not been applied yet.")}
+            </p>
+            <details className="apply-details">
+              <summary>{t("保存先の詳細を表示", "Show file details")}</summary>
+              <p className="path-line">{t("保存先", "Config path")}: <code>{resolvedConfigPath || "(resolving...)"}</code></p>
+              <p className="path-line">{t("環境変数", "Env file")}: <code>{resolvedEnvPath || "(resolving...)"}</code></p>
+              <p className="path-line">Exec Approvals: <code>{resolvedApprovalsPath || "(resolving...)"}</code></p>
+              <p className="rule-note">{t("決定ルール", "Resolution rule")}: `OPENCLAW_CONFIG_PATH` → `OPENCLAW_STATE_DIR/openclaw.json` → `~/.openclaw/openclaw.json`</p>
+            </details>
           </article>
         </section>
       )}
@@ -2255,7 +2368,7 @@ function App() {
                 {runStopping ? t("Stopping...", "Stopping...") : "Stop"}
               </button>
               <button className="run-action-btn" onClick={onOpenDashboard}>Open Dashboard</button>
-              <button className="run-action-btn" onClick={onOpenDashboardWithToken}>Open Dashboard (Token URL)</button>
+              <button className="run-action-btn secondary-action-btn" onClick={onCopyDashboardUrl}>{t("Dashboard URLをコピー", "Copy Dashboard URL")}</button>
             </div>
             <p className="rule-note">{t("推奨: App Parent（easy-openclawが親プロセスとしてgateway起動）", "Recommended: App Parent (easy-openclaw starts gateway as parent process)")}</p>
             <p className="path-line">{t("Gateway設定", "Gateway setting")}: <code>{snapshot.gateway.mode === "remote" ? `remote: ${snapshot.gateway.remote_url ?? "(unset)"}` : `local: ${snapshot.gateway.bind ?? "loopback"}:${snapshot.gateway.port ?? 18789}`}</code></p>

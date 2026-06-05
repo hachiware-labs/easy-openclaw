@@ -270,6 +270,79 @@ body::before {
   margin: 0;
 }
 
+.setup-status-panel .panel-head {
+  align-items: flex-start;
+}
+
+.next-action {
+  max-width: 520px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 229, 204, 0.32);
+  border-radius: 9px;
+  background: rgba(0, 229, 204, 0.08);
+  color: #bdfdf4;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.setup-status-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.setup-status-item {
+  min-width: 0;
+  padding: 8px 9px;
+  border-left: 3px solid var(--border-subtle);
+  background: rgba(17, 20, 32, 0.32);
+}
+
+.setup-status-item span,
+.setup-status-item small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.setup-status-item span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.setup-status-item strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.setup-status-item small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.setup-status-item.done {
+  border-left-color: #2fba7f;
+}
+
+.setup-status-item.next {
+  border-left-color: var(--coral-bright);
+  background: rgba(255, 77, 77, 0.08);
+}
+
+.setup-status-item.pending {
+  border-left-color: rgba(160, 168, 190, 0.28);
+}
+
+.next-step-note {
+  margin: 6px 0 8px;
+  color: #bdfdf4;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .empty-state {
   margin: 0;
   color: var(--text-muted);
@@ -324,8 +397,10 @@ body::before {
 }
 
 .table-action-btn.action-delete {
-  background: linear-gradient(135deg, #6a2530, #45161d);
-  border-color: rgba(255, 154, 163, 0.45);
+  background: rgba(69, 22, 29, 0.55);
+  border-color: rgba(255, 154, 163, 0.32);
+  color: #ffc7cc;
+  box-shadow: none;
 }
 
 .install-progress {
@@ -590,6 +665,13 @@ button:hover {
   box-shadow: 0 8px 22px rgba(227, 77, 95, 0.28);
 }
 
+.secondary-action-btn {
+  border-color: var(--border-subtle);
+  background: rgba(17, 20, 32, 0.92);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -774,6 +856,49 @@ li {
   word-break: break-all;
 }
 
+.gateway-summary,
+.apply-status {
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.apply-status {
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(17, 20, 32, 0.36);
+}
+
+.apply-status.done {
+  border-color: rgba(47, 186, 127, 0.42);
+  color: #bdf9d9;
+  background: rgba(47, 186, 127, 0.08);
+}
+
+.apply-status.pending {
+  border-color: rgba(255, 170, 51, 0.42);
+  color: #ffe0a8;
+  background: rgba(255, 170, 51, 0.08);
+}
+
+.gateway-details,
+.apply-details {
+  margin-top: 10px;
+}
+
+.gateway-details summary,
+.apply-details summary {
+  cursor: pointer;
+  color: #bdfdf4;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.gateway-details-grid {
+  margin-top: 10px;
+}
+
 .rule-note {
   margin: 6px 0 0;
   color: var(--text-muted);
@@ -861,6 +986,10 @@ a {
 
 @media (max-width: 760px) {
   .security-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-status-strip {
     grid-template-columns: 1fr;
   }
 
