@@ -70,3 +70,9 @@
 - [x] README / README_ja を Windows + Slack 前提の初回セットアップチュートリアルとして整理した
 - [x] Setupに現在地サマリーと次アクションを追加し、Gateway/Apply詳細とDashboard操作を初心者向けに整理した
 - [x] Gateway tokenを初回必須入力に見せず、空欄ならApply時に自動生成するようにした
+- [x] 終了時のOpenClaw停止確認をアプリ内オーバーレイに変更し、確認後は確実にウィンドウを閉じるようにした
+- [x] 終了時停止で通常停止が効かない場合に、Windows上のeasy-openclaw同梱OpenClaw gatewayプロセスを限定的に強制停止するfallbackを追加した
+- [x] OpenClaw停止処理が応答しない場合でも、一定時間後にeasy-openclawを閉じるようにした
+- [x] OpenClaw停止処理がエラーを返しても、easy-openclawの終了処理は継続するようにした
+- [x] 単なるポート使用中だけでは終了確認を出さず、起動直後のeasy-openclawをそのまま閉じられるようにした
+- [x] 確認後のeasy-openclaw終了をTauri側のアプリ終了コマンドに切り替え、停止失敗後も終了できるようにした

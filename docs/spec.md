@@ -99,7 +99,12 @@ Done：直近ログを閲覧でき、Dashboard URLへ遷移できる。
 
 補足（終了時停止確認）:
 - easy-openclawのウィンドウを閉じるとき、OpenClaw gateway が起動中または起動中の可能性がある場合は、OpenClawも停止するか確認する。
+- 終了確認は easy-openclaw が起動した gateway のPID、またはこのセッションの `starting` / `ready` 状態に限定して出す。単なるポート使用中だけでは終了を妨げない。
 - 利用者が停止を選んだ場合は、easy-openclawの終了前にOpenClaw gateway停止処理を実行する。
+- 終了確認はOS標準の小さいダイアログではなく、easy-openclaw内の大きめの確認オーバーレイで表示し、停止または閉じる選択後はウィンドウを確実に終了する。
+- Windowsでは通常停止が効かない場合、easy-openclaw同梱のOpenClaw gatewayプロセスに限定して強制停止するfallbackを実行する。
+- OpenClaw停止処理が応答しない、または停止処理がエラーを返した場合でも、easy-openclawの終了処理を継続する。
+- 確認後のeasy-openclaw終了はフロントのウィンドウ破棄だけに依存せず、Tauri側のアプリ終了コマンドを優先して実行する。
 
 #### エラー分岐（REQ-0006の枝番）
 | ERR-ID | 発生条件 | ユーザーアクション | 関連MSG-ID |

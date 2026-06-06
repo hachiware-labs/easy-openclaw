@@ -850,6 +850,66 @@ li {
   line-height: 1;
 }
 
+.exit-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 4, 8, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.exit-confirm-card {
+  width: min(720px, calc(100vw - 32px));
+  border: 1px solid rgba(255, 170, 170, 0.34);
+  border-radius: var(--radius);
+  background: var(--surface-card-strong);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.54);
+  padding: 22px;
+}
+
+.exit-confirm-card h2 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.exit-confirm-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.exit-confirm-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.exit-confirm-status span {
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: rgba(17, 20, 32, 0.5);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.exit-confirm-status strong {
+  color: var(--text-primary);
+}
+
+.exit-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
 .path-line {
   margin: 8px 0;
   color: var(--text-secondary);

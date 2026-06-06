@@ -4341,6 +4341,77 @@ fn run_gateway_stop_command(wait: bool) {
     });
 }
 
+#[cfg(target_os = "windows")]
+fn force_stop_packaged_openclaw_gateways(wait: bool) -> usize {
+    fn run_stop() {
+        let script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+Get-CimInstance Win32_Process |
+  Where-Object {
+    (
+      $_.Name -eq 'node.exe' -and
+      $_.CommandLine -match 'openclaw\.mjs' -and
+      $_.CommandLine -match '(^|\s)gateway(\s|$)' -and
+      $_.CommandLine -notmatch '(^|\s)gateway\s+stop(\s|$)'
+    ) -or (
+      $_.Name -eq 'cmd.exe' -and
+      $_.CommandLine -match 'openclaw\.cmd' -and
+      $_.CommandLine -match '(^|\s)gateway(\s|$)' -and
+      $_.CommandLine -notmatch '(^|\s)gateway\s+stop(\s|$)'
+    ) -or (
+      $_.Name -match '^openclaw(\.exe)?$' -and
+      $_.CommandLine -match '(^|\s)gateway(\s|$)' -and
+      $_.CommandLine -notmatch '(^|\s)gateway\s+stop(\s|$)'
+    )
+  } |
+  ForEach-Object {
+    Stop-Process -Id $_.ProcessId -Force
+  }
+"#;
+        let mut cmd = Command::new("powershell");
+        cmd.arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-Command")
+            .arg(script)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        apply_command_platform_flags(&mut cmd);
+        let Ok(mut child) = cmd.spawn() else {
+            return;
+        };
+        let started = SystemTime::now();
+        loop {
+            if child.try_wait().ok().flatten().is_some() {
+                break;
+            }
+            if SystemTime::now()
+                .duration_since(started)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                >= Duration::from_secs(3)
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    if wait {
+        run_stop();
+        return 1;
+    }
+
+    std::thread::spawn(run_stop);
+    1
+}
+
+#[cfg(not(target_os = "windows"))]
+fn force_stop_packaged_openclaw_gateways(_wait: bool) -> usize {
+    0
+}
+
 fn stop_gateway_inner(state: &AppState, wait: bool) -> Result<RunStatus, CommandError> {
     let gateway_cfg = state
         .persisted
@@ -4371,11 +4442,19 @@ fn stop_gateway_inner(state: &AppState, wait: bool) -> Result<RunStatus, Command
     }
 
     run_gateway_stop_command(wait);
+    let forced_count = force_stop_packaged_openclaw_gateways(wait);
 
     let run = state
         .run_state
         .lock()
         .map_err(|_| err("ERR-ECLAW-0000", "run lock poisoned"))?;
+    if forced_count > 0 {
+        push_log(
+            &state,
+            "warn",
+            "gateway stop fallback attempted for OpenClaw gateway process(es)",
+        );
+    }
     push_log(&state, "info", "gateway stopped");
     Ok(run_status_from(&run, &gateway_cfg))
 }
@@ -4388,6 +4467,11 @@ fn stop_gateway(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
 #[tauri::command]
 fn stop_gateway_for_exit(state: State<'_, AppState>) -> Result<RunStatus, CommandError> {
     stop_gateway_inner(&state, true)
+}
+
+#[tauri::command]
+fn exit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -4484,6 +4568,7 @@ pub fn run() {
             start_gateway,
             stop_gateway,
             stop_gateway_for_exit,
+            exit_app,
             get_logs,
             record_experiment,
             list_experiments,

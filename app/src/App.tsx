@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { confirm, message, open } from "@tauri-apps/plugin-dialog";
+import { message, open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import crayfishIcon from "./assets/easy-openclaw-logo.png";
 import "./App.css";
@@ -480,6 +480,8 @@ function App() {
   const [runStopping, setRunStopping] = useState(false);
   const [configAppliedAt, setConfigAppliedAt] = useState<string | null>(null);
   const [gatewayDetailsOpen, setGatewayDetailsOpen] = useState(false);
+  const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
+  const [exitBusy, setExitBusy] = useState(false);
   const [resolvedConfigPath, setResolvedConfigPath] = useState("");
   const [resolvedEnvPath, setResolvedEnvPath] = useState("");
   const [resolvedApprovalsPath, setResolvedApprovalsPath] = useState("");
@@ -674,57 +676,68 @@ function App() {
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
-    let disposed = false;
     const unlistenPromise = appWindow.onCloseRequested(async (event) => {
       if (closeConfirmedRef.current) return;
       const current = snapshotRef.current;
-      const gatewayMayBeRunning =
-        current.run_status.running ||
-        current.run_status.can_stop ||
+      const appManagedGatewayMayBeRunning =
+        current.run_status.pid !== undefined ||
         current.run_status.health === "ready" ||
-        current.run_status.health === "starting" ||
-        current.run_status.port_in_use;
-      if (!gatewayMayBeRunning) return;
+        current.run_status.health === "starting";
+      if (!appManagedGatewayMayBeRunning) return;
 
       event.preventDefault();
-      const stopOpenClaw = await confirm(
-        t(
-          "OpenClaw gateway が起動中の可能性があります。easy-openclawを閉じる前にOpenClawも停止しますか？",
-          "OpenClaw gateway may still be running. Stop OpenClaw before closing easy-openclaw?",
-        ),
-        {
-          title: "easy-openclaw",
-          kind: "warning",
-          okLabel: t("OpenClawも停止して閉じる", "Stop OpenClaw and Close"),
-          cancelLabel: t("閉じるだけ", "Close only"),
-        },
-      );
-
-      if (stopOpenClaw) {
-        try {
-          await invoke("stop_gateway_for_exit");
-        } catch {
-          await message(
-            t(
-              "OpenClawの停止に失敗しました。Runタブまたはターミナルから停止状態を確認してください。",
-              "Failed to stop OpenClaw. Check the Run tab or terminal for the process state.",
-            ),
-            { title: "easy-openclaw", kind: "warning" },
-          );
-        }
-      }
-
-      closeConfirmedRef.current = true;
-      if (!disposed) {
-        await appWindow.close();
-      }
+      setExitConfirmVisible(true);
     });
 
     return () => {
-      disposed = true;
       unlistenPromise.then((unlisten) => unlisten()).catch(() => {});
     };
   }, [uiLang]);
+
+  async function closeAppAfterDecision(stopOpenClaw: boolean) {
+    setExitBusy(true);
+    setError("");
+    let stopFailed = false;
+    if (stopOpenClaw) {
+      try {
+        await Promise.race([
+          invoke("stop_gateway_for_exit"),
+          new Promise((resolve) => window.setTimeout(resolve, 8000)),
+        ]);
+      } catch {
+        stopFailed = true;
+      }
+    }
+    try {
+      closeConfirmedRef.current = true;
+      await invoke("exit_app");
+    } catch (e) {
+      try {
+        await getCurrentWindow().destroy();
+      } catch {
+        closeConfirmedRef.current = false;
+        setExitBusy(false);
+        handleCommandError(e);
+        await message(
+          stopFailed
+            ? t(
+                "OpenClawの停止でエラーが出たうえ、easy-openclawの終了にも失敗しました。Runタブまたはターミナルから停止状態を確認してください。",
+                "OpenClaw stop reported an error, and easy-openclaw also failed to close. Check the Run tab or terminal for the process state.",
+              )
+            : t(
+                "easy-openclawの終了に失敗しました。もう一度閉じる操作を試してください。",
+                "Failed to close easy-openclaw. Try closing it again.",
+              ),
+          { title: "easy-openclaw", kind: "warning" },
+        );
+      }
+    }
+  }
+
+  function cancelExitConfirm() {
+    if (exitBusy) return;
+    setExitConfirmVisible(false);
+  }
 
   useEffect(() => {
     if (activeTab !== "maintenance") return;
@@ -2529,6 +2542,36 @@ function App() {
             </div>
           </article>
         </section>
+      )}
+
+      {exitConfirmVisible && (
+        <div className="exit-confirm-backdrop" role="dialog" aria-modal="true" aria-labelledby="exit-confirm-title">
+          <div className="exit-confirm-card">
+            <h2 id="exit-confirm-title">{t("OpenClawも停止しますか？", "Stop OpenClaw too?")}</h2>
+            <p>
+              {t(
+                "OpenClaw gateway が起動中、または起動中の可能性があります。easy-openclawを閉じる前に、OpenClaw gatewayも停止できます。",
+                "OpenClaw gateway is running or may still be running. You can stop it before closing easy-openclaw.",
+              )}
+            </p>
+            <div className="exit-confirm-status">
+              <span>Health: <strong>{snapshot.run_status.health}</strong></span>
+              <span>PID: <strong>{snapshot.run_status.pid ?? "-"}</strong></span>
+              <span>PortInUse: <strong>{snapshot.run_status.port_in_use ? "yes" : "no"}</strong></span>
+            </div>
+            <div className="exit-confirm-actions">
+              <button type="button" className="run-stop-btn" onClick={() => closeAppAfterDecision(true)} disabled={exitBusy}>
+                {exitBusy ? t("停止して終了中...", "Stopping and closing...") : t("OpenClawも停止して閉じる", "Stop OpenClaw and Close")}
+              </button>
+              <button type="button" className="secondary-action-btn" onClick={() => closeAppAfterDecision(false)} disabled={exitBusy}>
+                {t("easy-openclawだけ閉じる", "Close easy-openclaw Only")}
+              </button>
+              <button type="button" className="secondary-action-btn" onClick={cancelExitConfirm} disabled={exitBusy}>
+                {t("キャンセル", "Cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="ec-toast-stack" aria-live="polite" aria-atomic="false">
