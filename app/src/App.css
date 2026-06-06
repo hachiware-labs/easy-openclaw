@@ -193,6 +193,30 @@ body::before {
   gap: 14px;
 }
 
+.setup-status-panel {
+  order: 0;
+}
+
+.setup-models-panel {
+  order: 1;
+}
+
+.setup-agents-panel {
+  order: 2;
+}
+
+.setup-channels-panel {
+  order: 3;
+}
+
+.setup-gateway-panel {
+  order: 4;
+}
+
+.setup-apply-panel {
+  order: 5;
+}
+
 .panel {
   background: var(--surface-card);
   border: 1px solid var(--border-subtle);
@@ -288,7 +312,7 @@ body::before {
 
 .setup-status-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
 }
 

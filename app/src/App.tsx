@@ -604,8 +604,8 @@ function App() {
 
   function gatewayAuthModeHelp(mode: string): string {
     return mode === "password"
-      ? t("Dashboard等のアクセスにパスワード形式の認証値を使います。", "Uses a password-style secret for Dashboard and gateway access.")
-      : t("Dashboard等のアクセスにトークン形式の認証値を使います。空欄ならApply時に自動生成します。", "Uses a token-style secret for Dashboard and gateway access. Leave empty to auto-generate it on Apply.");
+      ? t("Dashboard等のアクセスにパスワード形式の認証値を使います。必要な場合だけ入力してください。", "Uses a password-style secret for Dashboard and gateway access. Enter it only when needed.")
+      : t("標準設定です。Token欄は空欄で進められ、Apply Config時に自動生成されます。", "This is the default. You can leave the token field empty; Apply Config auto-generates it.");
   }
 
   function tailscaleModeHelp(mode: string): string {
@@ -637,7 +637,7 @@ function App() {
       return t("次は Agent を追加し、使うModelとWorkspaceを選びます。", "Next, add an Agent and choose its model and workspace.");
     }
     if (!configAppliedAt) {
-      return t("次は Apply Config でOpenClaw設定を書き出します。", "Next, use Apply Config to write the OpenClaw files.");
+      return t("次は Gateway Settings を確認してから Apply Config で保存します。", "Next, check Gateway Settings, then save with Apply Config.");
     }
     if (snapshot.run_status.health !== "ready") {
       return t("次は Run で Start し、GatewayとDashboardを確認します。", "Next, open Run and press Start to check the Gateway and Dashboard.");
@@ -1710,34 +1710,43 @@ function App() {
             </div>
             <div className="setup-status-strip" aria-label={t("セットアップ状態", "Setup status")}>
               <div className={`setup-status-item ${statusClass(snapshot.models.length > 0, snapshot.models.length === 0)}`}>
-                <span>Model Provider</span>
+                <span>{t("モデル", "Model")}</span>
                 <strong>{statusLabel(snapshot.models.length > 0, snapshot.models.length === 0)}</strong>
                 <small>{snapshot.models.length > 0 ? t(`${snapshot.models.length}件`, `${snapshot.models.length} configured`) : t("最初に追加", "Add first")}</small>
               </div>
               <div className={`setup-status-item ${statusClass(snapshot.agents.length > 0, snapshot.models.length > 0 && snapshot.agents.length === 0)}`}>
-                <span>Agent</span>
+                <span>{t("エージェント", "Agent")}</span>
                 <strong>{statusLabel(snapshot.agents.length > 0, snapshot.models.length > 0 && snapshot.agents.length === 0)}</strong>
                 <small>{snapshot.agents.length > 0 ? t(`${snapshot.agents.length}件`, `${snapshot.agents.length} configured`) : t("Model追加後", "After model")}</small>
               </div>
               <div className={`setup-status-item ${statusClass(snapshot.channels.length > 0)}`}>
-                <span>Channel</span>
+                <span>{t("チャンネル", "Channel")}</span>
                 <strong>{snapshot.channels.length > 0 ? t("任意設定済み", "Optional done") : t("任意", "Optional")}</strong>
                 <small>{snapshot.channels.length > 0 ? t(`${snapshot.channels.length}件`, `${snapshot.channels.length} configured`) : t("後から追加可", "Can add later")}</small>
               </div>
+              <div className={`setup-status-item ${statusClass(true, snapshot.models.length > 0 && snapshot.agents.length > 0 && !configAppliedAt)}`}>
+                <span>{t("ゲートウェイ", "Gateway")}</span>
+                <strong>{gatewayMode === "remote" ? "remote" : "local"}</strong>
+                <small>
+                  {gatewayMode === "remote"
+                    ? t("Remote設定", "Remote settings")
+                    : t("標準で利用可", "Default ready")}
+                </small>
+              </div>
               <div className={`setup-status-item ${statusClass(!!configAppliedAt, snapshot.models.length > 0 && snapshot.agents.length > 0 && !configAppliedAt)}`}>
-                <span>Apply Config</span>
+                <span>{t("設定保存", "Save Config")}</span>
                 <strong>{statusLabel(!!configAppliedAt, snapshot.models.length > 0 && snapshot.agents.length > 0 && !configAppliedAt)}</strong>
                 <small>{configAppliedAt ?? t("未適用", "Not applied")}</small>
               </div>
               <div className={`setup-status-item ${statusClass(snapshot.run_status.health === "ready", !!configAppliedAt && snapshot.run_status.health !== "ready")}`}>
-                <span>Gateway</span>
+                <span>{t("実行", "Run")}</span>
                 <strong>{snapshot.run_status.health === "ready" ? "ready" : statusLabel(false, !!configAppliedAt)}</strong>
                 <small>{snapshot.run_status.health}</small>
               </div>
             </div>
           </article>
 
-          <article className="panel">
+          <article className="panel setup-models-panel">
             <div className="panel-head">
               <h2>{t("モデルプロバイダー", "Model Providers")}</h2>
               <button type="button" onClick={onOpenCreateModel} disabled={isModelEditing}>{t("モデルを追加", "Add Model")}</button>
@@ -1778,7 +1787,7 @@ function App() {
             )}
           </article>
 
-          <article className="panel">
+          <article className="panel setup-channels-panel">
             <div className="panel-head">
               <h2>Channels</h2>
               <button type="button" onClick={onOpenCreateChannel} disabled={isChannelEditing}>{t("チャンネルを追加", "Add Channel")}</button>
@@ -1814,7 +1823,7 @@ function App() {
             )}
           </article>
 
-          <article className="panel">
+          <article className="panel setup-agents-panel">
             <div className="panel-head">
               <h2>Agents</h2>
               <button type="button" onClick={onOpenCreateAgent} disabled={isAgentEditing}>{t("エージェントを追加", "Add Agent")}</button>
@@ -1826,7 +1835,7 @@ function App() {
               {snapshot.agents.length === 0
                 ? t("次の操作: Agentを追加します。ChannelはNo ChannelのままでもDashboard確認できます。", "Next action: add an Agent. You can keep Channel as No Channel for Dashboard verification.")
                 : !configAppliedAt
-                  ? t("次の操作: Apply ConfigでOpenClaw設定を書き出します。", "Next action: write OpenClaw files with Apply Config.")
+                  ? t("次の操作: Gateway Settingsを確認してからApply Configで保存します。", "Next action: check Gateway Settings, then save with Apply Config.")
                   : t("Agentは設定済みです。次はRunでStartします。", "Agent is configured. Next, open Run and press Start.")}
             </p>
             {snapshot.agents.length === 0 ? (
@@ -1852,12 +1861,15 @@ function App() {
             )}
           </article>
 
-          <article className="panel">
+          <article className="panel setup-gateway-panel">
             <div className="panel-head">
-              <h2>Gateway</h2>
+              <h2>{t("Gateway Settings", "Gateway Settings")}</h2>
             </div>
             <p className="panel-subtitle">
-              {t("OpenClawの実行サーバー設定です。初回は標準のLocal/loopbackのままがおすすめです。", "OpenClaw runtime server settings. For first setup, keep the standard Local/loopback values.")}
+              {t("Apply Configで保存されるOpenClawの実行サーバー設定です。初回は標準のLocal/loopbackのまま進められます。", "OpenClaw runtime server settings written by Apply Config. For first setup, keep the standard Local/loopback values.")}
+            </p>
+            <p className="rule-note">
+              {t("Tokenは空欄で構いません。Apply Config時に自動生成され、Dashboard URLにも自動で付与されます。", "The token can stay empty. Apply Config auto-generates it and adds it to the Dashboard URL.")}
             </p>
             <p className="gateway-summary">
               {gatewayMode === "remote"
@@ -1897,8 +1909,8 @@ function App() {
                     {t("Auth (任意)", "Auth (optional)")}
                     <div className="inline-row">
                       <select className="form-select" value={gatewayAuthMode} onChange={(e) => { setGatewayAuthMode(e.target.value); markConfigDirty(); }}>
-                        <option value="token">token</option>
-                        <option value="password">password</option>
+                        <option value="token">{t("token（空欄なら自動生成）", "token (auto if empty)")}</option>
+                        <option value="password">{t("password（必要な場合のみ）", "password (only if needed)")}</option>
                       </select>
                       <div className="input-with-button">
                         <input
@@ -1906,7 +1918,7 @@ function App() {
                           type={showGatewayAuthToken ? "text" : "password"}
                           value={gatewayAuthToken}
                           onChange={(e) => { setGatewayAuthToken(e.target.value); markConfigDirty(); }}
-                          placeholder={gatewayAuthMode === "token" ? t("空欄なら自動生成", "Auto-generated if empty") : "Gateway Password"}
+                          placeholder={gatewayAuthMode === "token" ? t("入力不要: Apply時に自動生成", "No input needed: generated on Apply") : t("必要な場合だけ入力", "Enter only if needed")}
                         />
                         <button type="button" className="toggle-visibility" onClick={() => setShowGatewayAuthToken((v) => !v)}>
                           {showGatewayAuthToken ? "Hide" : "Show"}
@@ -1954,7 +1966,7 @@ function App() {
             </details>
           </article>
 
-          <article className="panel">
+          <article className="panel setup-apply-panel">
             <div className="panel-head">
               <h2>Apply</h2>
               <button type="button" onClick={onApplyConfig}>Apply Config</button>

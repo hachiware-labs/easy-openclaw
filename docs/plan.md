@@ -76,3 +76,6 @@
 - [x] OpenClaw停止処理がエラーを返しても、easy-openclawの終了処理は継続するようにした
 - [x] 単なるポート使用中だけでは終了確認を出さず、起動直後のeasy-openclawをそのまま閉じられるようにした
 - [x] 確認後のeasy-openclaw終了をTauri側のアプリ終了コマンドに切り替え、停止失敗後も終了できるようにした
+- [x] Setupの表示順を Models -> Agents -> Channels -> Gateway Settings -> Apply Config に整理し、Gateway token は空欄で自動生成されることを明示した
+- [x] Setup上部ガイドも Gateway Settings -> Apply Config -> Run Gateway の順に修正した
+- [x] Setup上部ガイドのラベルをi18n化し、日本語ではモデル/エージェント/チャンネル/ゲートウェイ/設定保存/実行で表示するようにした
